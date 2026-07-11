@@ -1,0 +1,21 @@
+{
+  "profile": {
+    "name": "오늘의신기템",
+    "bio": "쿠팡에서 찾은 세상 신기한 물건들",
+    "avatar": "",
+    "links": [
+      { "type": "instagram", "url": "https://www.instagram.com/" }
+    ]
+  },
+  "products": [
+    {
+      "id": 1,
+      "title": "샘플 상품 — 첫 실상품 추가 후 삭제",
+      "price": 12900,
+      "image": "https://picsum.photos/seed/singi1/640/400",
+      "link": "https://www.coupang.com/",
+      "addedAt": "2026-07-12",
+      "active": true
+    }
+  ]
+}
