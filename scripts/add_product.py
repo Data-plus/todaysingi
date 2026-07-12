@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_FILE = REPO_ROOT / "products.json"
+DEFAULT_FILE = REPO_ROOT / "site" / "products.json"
 
 
 class ValidationError(ValueError):
