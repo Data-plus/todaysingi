@@ -1,4 +1,4 @@
-type IconName = "grid" | "box" | "activity" | "send" | "chart" | "settings" | "plus" | "arrow" | "play";
+type IconName = "grid" | "box" | "activity" | "send" | "chart" | "settings" | "plus" | "arrow" | "play" | "github";
 
 const paths: Record<IconName, React.ReactNode> = {
   grid: <><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></>,
@@ -10,6 +10,7 @@ const paths: Record<IconName, React.ReactNode> = {
   plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
   arrow: <><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></>,
   play: <path d="m8 5 11 7-11 7Z"/>,
+  github: <><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.7-1.6 6.7-7.3A5.7 5.7 0 0 0 19.2 3.3 5.4 5.4 0 0 0 19.1 1S17.9.7 15 2.5a13.4 13.4 0 0 0-6 0C6.1.7 4.9 1 4.9 1a5.4 5.4 0 0 0-.1 2.3 5.7 5.7 0 0 0-1.5 4c0 5.6 3.4 6.8 6.7 7.2A4.8 4.8 0 0 0 9 18v4"/><path d="M9 18c-4.5 2-5-2-7-2"/></>,
 };
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {

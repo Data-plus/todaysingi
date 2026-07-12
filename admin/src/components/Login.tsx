@@ -1,20 +1,24 @@
 import { useState } from "react";
-import { adminEmail, supabase } from "../lib/supabase";
+import { Icon } from "./Icon";
+import { adminRedirectUrl, oauthCallbackError } from "../lib/auth";
+import { supabase } from "../lib/supabase";
 
 export function Login() {
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
+  const [message, setMessage] = useState(() => oauthCallbackError(window.location.search));
 
-  async function sendMagicLink() {
+  async function signInWithGitHub() {
     if (!supabase) return;
-    setSending(true);
+    setSigningIn(true);
     setMessage("");
-    const { error } = await supabase.auth.signInWithOtp({
-      email: adminEmail,
-      options: { shouldCreateUser: false, emailRedirectTo: window.location.href },
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: { redirectTo: adminRedirectUrl },
     });
-    setMessage(error ? error.message : `${adminEmail}로 로그인 링크를 보냈습니다.`);
-    setSending(false);
+    if (error) {
+      setMessage(`GitHub 로그인을 시작하지 못했습니다: ${error.message}`);
+      setSigningIn(false);
+    }
   }
 
   return (
@@ -24,9 +28,11 @@ export function Login() {
         <h1>Today's Singi<br/><i>Control Desk.</i></h1>
         <div className="login-rule"/>
         <p className="login-copy">상품의 발견부터 릴스 게시까지, 본인만 접근할 수 있는 운영 관제실입니다.</p>
-        <button onClick={sendMagicLink} disabled={sending}>
-          {sending ? "보내는 중…" : "이메일로 로그인"}
+        <button onClick={signInWithGitHub} disabled={signingIn}>
+          <Icon name="github" size={18}/>
+          {signingIn ? "GitHub로 이동 중…" : "GitHub로 계속하기"}
         </button>
+        <p className="login-note">승인된 GitHub 계정 한 개만 입장할 수 있습니다.</p>
         {message ? <output aria-live="polite">{message}</output> : null}
       </section>
     </main>
