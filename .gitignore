@@ -4,3 +4,6 @@ __pycache__/
 ops/dashboard.html
 ops/assets/
 .env
+admin/node_modules/
+admin/dist/
+admin/*.tsbuildinfo
