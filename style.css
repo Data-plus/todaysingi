@@ -1,0 +1,53 @@
+:root {
+  --ink: #191919;
+  --muted: #888780;
+  --line: #e5e4de;
+  --bg-soft: #f5f4f0;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #fff;
+  color: var(--ink);
+  font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo",
+    "Malgun Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 480px; margin: 0 auto; padding: 32px 20px 24px; }
+
+.profile { text-align: center; margin-bottom: 28px; }
+.avatar {
+  width: 72px; height: 72px; border-radius: 50%;
+  margin: 0 auto 12px; display: block; object-fit: cover;
+}
+.avatar-fallback {
+  width: 72px; height: 72px; border-radius: 50%;
+  margin: 0 auto 12px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-soft); color: var(--ink);
+  font-size: 28px; font-weight: 600;
+}
+.profile h1 { font-size: 20px; margin: 0 0 4px; }
+.profile .bio { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+.sns { display: flex; gap: 14px; justify-content: center; }
+.sns a { color: var(--ink); display: inline-flex; }
+.sns svg { width: 22px; height: 22px; }
+
+.products { display: flex; flex-direction: column; gap: 16px; }
+.card { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.card .thumb {
+  width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block;
+  background: var(--bg-soft); border: 0;
+}
+.card-body { padding: 14px 16px 16px; }
+.card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+.card .price { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+.buy {
+  display: block; text-align: center; background: var(--ink); color: #fff;
+  text-decoration: none; font-size: 15px; font-weight: 600;
+  padding: 12px 0; border-radius: 10px;
+}
+.buy:active { opacity: .85; }
+
+.status { text-align: center; color: var(--muted); padding: 40px 0; }
+.footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 11px; }
