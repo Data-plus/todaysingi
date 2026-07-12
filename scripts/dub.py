@@ -104,6 +104,10 @@ def main(argv=None):
     parser.add_argument("--voice", default=None,
                         help="typecast: tc_... voice_id / edge: ko-KR-SunHiNeural 등")
     parser.add_argument("--rate", default="+0%")
+    parser.add_argument("--emotion", default=None, choices=tts.EMOTION_PRESETS,
+                        help="Typecast 감정 프리셋 (예: happy, toneup)")
+    parser.add_argument("--intensity", type=float, default=1.0,
+                        help="감정 강도 0.0~2.0 (기본 1.0)")
     parser.add_argument("--no-subs", action="store_true")
     args = parser.parse_args(argv)
 
@@ -129,7 +133,8 @@ def main(argv=None):
     print(f"TTS 생성 중 (engine={engine}, rate {args.rate})...")
     engine, used_voice, words = tts.synthesize(
         text, engine=engine, voice=args.voice, rate=args.rate,
-        out_path=voice_mp3, api_key=api_key)
+        out_path=voice_mp3, api_key=api_key,
+        emotion=args.emotion, intensity=args.intensity)
 
     video_len = probe_duration(muted)
     audio_len = probe_duration(voice_mp3)

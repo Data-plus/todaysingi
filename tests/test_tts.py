@@ -52,6 +52,21 @@ def test_to_words_maps_typecast_segments():
     assert to_words(None) == []
 
 
+def test_build_typecast_payload_with_emotion():
+    from tts import build_typecast_payload
+    p = build_typecast_payload("텍스트", "tc_abc", "+0%", emotion="toneup", intensity=1.5)
+    assert p["prompt"] == {"emotion_type": "preset", "emotion_preset": "toneup",
+                           "emotion_intensity": 1.5}
+    assert p["output"]["audio_tempo"] == 1.0
+    assert "prompt" not in build_typecast_payload("텍스트", "tc_abc", "+0%")
+
+
+def test_build_typecast_payload_rejects_bad_emotion():
+    from tts import build_typecast_payload
+    with pytest.raises(ValueError):
+        build_typecast_payload("텍스트", "tc_abc", "+0%", emotion="신남")
+
+
 def test_choose_engine_prefers_typecast_when_key_exists():
     assert choose_engine("auto", api_key="abc") == "typecast"
     assert choose_engine("auto", api_key="") == "edge"

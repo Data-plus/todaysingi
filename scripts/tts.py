@@ -86,9 +86,10 @@ def synthesize_edge(text, voice, rate, out_path):
     return asyncio.run(run())
 
 
-def synthesize_typecast(text, voice, rate, out_path, api_key):
-    import requests
+EMOTION_PRESETS = ("normal", "happy", "sad", "angry", "whisper", "toneup", "tonedown")
 
+
+def build_typecast_payload(text, voice, rate, emotion=None, intensity=1.0):
     payload = {
         "voice_id": voice,
         "text": text,
@@ -96,6 +97,18 @@ def synthesize_typecast(text, voice, rate, out_path, api_key):
         "language": "kor",
         "output": {"audio_format": "mp3", "audio_tempo": rate_to_tempo(rate)},
     }
+    if emotion:
+        if emotion not in EMOTION_PRESETS:
+            raise ValueError(f"emotion은 {EMOTION_PRESETS} 중 하나여야 합니다")
+        payload["prompt"] = {"emotion_type": "preset", "emotion_preset": emotion,
+                             "emotion_intensity": intensity}
+    return payload
+
+
+def synthesize_typecast(text, voice, rate, out_path, api_key, emotion=None, intensity=1.0):
+    import requests
+
+    payload = build_typecast_payload(text, voice, rate, emotion, intensity)
     r = requests.post(f"{TYPECAST_BASE}/text-to-speech/with-timestamps",
                       headers={"X-API-KEY": api_key}, json=payload, timeout=120)
     if r.status_code != 200:
@@ -126,7 +139,7 @@ def list_typecast_voices(api_key, model=TYPECAST_MODEL):
     return r.json()
 
 
-def synthesize(text, *, engine, voice, rate, out_path, api_key=""):
+def synthesize(text, *, engine, voice, rate, out_path, api_key="", emotion=None, intensity=1.0):
     """엔진 디스패처. 반환: (사용한 엔진, 사용한 음성, words)"""
     if engine == "typecast":
         if not api_key:
@@ -134,7 +147,8 @@ def synthesize(text, *, engine, voice, rate, out_path, api_key=""):
                                f"(위치: {ENV_FILE})")
         if not voice:
             voice = pick_typecast_voice(api_key)
-        words = synthesize_typecast(text, voice, rate, out_path, api_key)
+        words = synthesize_typecast(text, voice, rate, out_path, api_key,
+                                    emotion, intensity)
     else:
         voice = voice or DEFAULT_EDGE_VOICE
         print("경고: edge-tts는 PoC 전용입니다(상업 라이선스 불분명). "

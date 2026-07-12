@@ -4,7 +4,7 @@
       "id": 1,
       "title": "불쏘는 마법지팡이",
       "coupangUrl": "https://link.coupang.com/a/fjBpUek5lc",
-      "stage": "caption_ready",
+      "stage": "linked",
       "history": [
         {
           "stage": "sourced",
@@ -29,6 +29,14 @@
         {
           "stage": "caption_ready",
           "at": "2026-07-12T11:24:12"
+        },
+        {
+          "stage": "published",
+          "at": "2026-07-12T11:55:14"
+        },
+        {
+          "stage": "linked",
+          "at": "2026-07-12T11:55:37"
         }
       ],
       "data": {
@@ -37,7 +45,9 @@
         "finalVideo": "ops/assets/1/final.mp4",
         "voice": "ko-KR-SunHiNeural",
         "partnersLink": "https://link.coupang.com/a/fjBpUek5lc",
-        "siteProductId": "1"
+        "siteProductId": "1",
+        "reelUrl": "https://www.instagram.com/reel/DarULTkCZk5/",
+        "igMediaId": "18136682758580321"
       },
       "note": ""
     }
