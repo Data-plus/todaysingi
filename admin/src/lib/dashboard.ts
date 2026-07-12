@@ -128,7 +128,7 @@ export function buildConnections(data: DeskData, live: boolean): ConnectionInfo[
       id: "worker",
       name: "로컬 Worker",
       status: data.worker.online ? "connected" : "waiting",
-      label: data.worker.online ? "연결됨" : CONNECTION_WAITING_LABEL,
+      label: data.worker.online ? "연결됨" : "오프라인",
       detail: data.worker.detail,
     },
     {

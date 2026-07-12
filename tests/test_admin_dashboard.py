@@ -108,3 +108,10 @@ def test_demo_mode_disables_actions_that_need_live_supabase():
     assert "Supabase 연결 후 사용할 수 있습니다" in shell
     assert "Supabase 연결 후 사용할 수 있습니다" in jobs
     assert "Supabase 연결 후 사용할 수 있습니다" in drawer
+
+
+def test_worker_without_recent_heartbeat_is_offline_not_unconfigured():
+    dashboard = source("admin/src/lib/dashboard.ts")
+
+    assert 'label: data.worker.online ? "연결됨" : "오프라인"' in dashboard
+    assert 'status: data.worker.online ? "connected" : "waiting"' in dashboard
