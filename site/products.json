@@ -19,6 +19,15 @@
       "link": "https://link.coupang.com/a/fjBpUek5lc",
       "addedAt": "2026-07-12",
       "active": true
+    },
+    {
+      "id": 2,
+      "title": "키링 미니 디지털 카메라",
+      "price": 25900,
+      "image": "images/002.png",
+      "link": "https://link.coupang.com/a/fjL6CDVKBo",
+      "addedAt": "2026-07-12",
+      "active": true
     }
   ]
 }
