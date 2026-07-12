@@ -53,7 +53,7 @@ create table public.jobs (
   id uuid primary key default gen_random_uuid(),
   product_id bigint references public.products(id) on delete cascade,
   type text not null check (type in (
-    'sync_pipeline', 'fetch_video', 'dub', 'publish_reel', 'add_product'
+    'sync_pipeline', 'create_product', 'fetch_video', 'dub', 'publish_reel', 'add_product'
   )),
   status text not null default 'queued' check (status in (
     'queued', 'claimed', 'running', 'succeeded', 'failed', 'cancelled'
