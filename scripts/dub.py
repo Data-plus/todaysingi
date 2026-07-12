@@ -102,13 +102,14 @@ def synthesize(text, voice, rate, out_mp3):
     import edge_tts
 
     async def run():
-        communicate = edge_tts.Communicate(text, voice, rate=rate)
+        # edge-tts 7.x는 boundary 기본값이 문장 단위라 명시적으로 단어 단위를 요청한다
+        communicate = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
         words = []
         with open(out_mp3, "wb") as f:
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     f.write(chunk["data"])
-                elif chunk["type"] == "WordBoundary":
+                elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
                     words.append({
                         "text": chunk["text"],
                         "start_s": chunk["offset"] / 10_000_000,
@@ -162,7 +163,9 @@ def main(argv=None):
         return 1
 
     srt = workdir / "subs.srt"
-    if args.no_subs:
+    if not words and not args.no_subs:
+        print("경고: TTS가 타이밍 정보를 주지 않아 자막 없이 합성합니다.", file=sys.stderr)
+    if args.no_subs or not words:
         cmd = build_mux_cmd("muted.mp4", "voice.mp3", "final.mp4")
     else:
         srt.write_text(generate_srt(words), encoding="utf-8")
