@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:netlify": "node scripts/check-netlify-env.mjs && tsc -b && vite build --outDir ../site/admin",
     "preview": "vite preview"
   },
   "dependencies": {

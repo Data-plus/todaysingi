@@ -7,3 +7,4 @@ ops/assets/
 admin/node_modules/
 admin/dist/
 admin/*.tsbuildinfo
+site/admin/

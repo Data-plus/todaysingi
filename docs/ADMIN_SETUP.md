@@ -60,3 +60,15 @@ npm run dev
 5. Typecast 재더빙 요청 시 기존 `dub.py` 실행 후 상태·로그 동기화
 
 Instagram 게시 작업은 DB의 `approved_at`이 없으면 Worker에서도 거부한다.
+
+## 6. Netlify 배포
+
+Netlify 사이트 환경변수에는 브라우저용 값만 등록한다.
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_ADMIN_EMAIL=plusmg@gmail.com`
+
+루트 `netlify.toml`은 배포 시 `admin`을 빌드해 `site/admin/`에 합친다. 세 값 중
+하나라도 없으면 빌드가 실패하므로 데모 관리자 화면이 실수로 공개되지 않는다.
+배포 후 주소는 `https://todaysingi.netlify.app/admin/`이다.
