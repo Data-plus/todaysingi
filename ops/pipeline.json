@@ -1,3 +1,40 @@
 {
-  "items": []
+  "items": [
+    {
+      "id": 1,
+      "title": "불쏘는 마법지팡이",
+      "coupangUrl": "https://link.coupang.com/a/fjBpUek5lc",
+      "stage": "caption_ready",
+      "history": [
+        {
+          "stage": "sourced",
+          "at": "2026-07-12T11:19:27"
+        },
+        {
+          "stage": "video_ready",
+          "at": "2026-07-12T11:19:28"
+        },
+        {
+          "stage": "script_ready",
+          "at": "2026-07-12T11:20:07"
+        },
+        {
+          "stage": "audio_ready",
+          "at": "2026-07-12T11:20:10"
+        },
+        {
+          "stage": "caption_ready",
+          "at": "2026-07-12T11:21:35"
+        }
+      ],
+      "data": {
+        "mutedVideo": "ops/assets/1/muted.mp4",
+        "aliUrl": "https://ko.aliexpress.com/item/1005006821056543.html",
+        "finalVideo": "ops/assets/1/final.mp4",
+        "voice": "ko-KR-SunHiNeural",
+        "partnersLink": "https://link.coupang.com/a/fjBpUek5lc"
+      },
+      "note": ""
+    }
+  ]
 }

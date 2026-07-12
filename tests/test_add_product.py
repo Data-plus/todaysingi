@@ -52,6 +52,21 @@ def test_rejects_invalid_input(kwargs):
         add_product(make_data(), **kwargs)
 
 
+def test_accepts_local_images_path():
+    data = make_data()
+    p = add_product(data, title="가습기", price=12900,
+                    image="images/001.jpg",
+                    link="https://link.coupang.com/a/aaa")
+    assert p["image"] == "images/001.jpg"
+
+
+def test_rejects_local_path_outside_images():
+    with pytest.raises(ValidationError):
+        add_product(make_data(), title="가습기", price=12900,
+                    image="C:/somewhere/1.jpg",
+                    link="https://link.coupang.com/a/aaa")
+
+
 def test_rejects_duplicate_link():
     data = make_data([{"id": 1, "link": "https://link.coupang.com/a/dup"}])
     with pytest.raises(ValidationError):

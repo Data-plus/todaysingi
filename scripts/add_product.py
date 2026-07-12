@@ -39,9 +39,11 @@ def validate(title, price, image, link, existing_products):
         raise ValidationError("title이 비어 있습니다")
     if not isinstance(price, int) or isinstance(price, bool) or price <= 0:
         raise ValidationError("price는 양의 정수여야 합니다")
-    for name, url in (("image", image), ("link", link)):
-        if not isinstance(url, str) or not url.startswith("https://"):
-            raise ValidationError(f"{name}은(는) https:// 로 시작해야 합니다")
+    if not isinstance(image, str) or not (
+            image.startswith("https://") or image.startswith("images/")):
+        raise ValidationError("image는 https:// URL 또는 images/ 경로여야 합니다")
+    if not isinstance(link, str) or not link.startswith("https://"):
+        raise ValidationError("link는 https:// 로 시작해야 합니다")
     if any(p["link"] == link for p in existing_products):
         raise ValidationError("이미 같은 link의 상품이 있습니다")
 
