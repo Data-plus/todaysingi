@@ -1,4 +1,4 @@
-const GA_MEASUREMENT_ID = ""; // GA4 측정 ID(G-XXXXXXXXXX). 비우면 추적 없이 동작.
+const GA_MEASUREMENT_ID = "G-1C612TT8W0"; // GA4 측정 ID. 비우면 추적 없이 동작.
 
 const ICONS = {
   instagram:
