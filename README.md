@@ -29,7 +29,14 @@ push하면 Netlify가 약 1분 내 자동 배포한다.
 
 단계: 상품확정 → 영상준비 → 대본완성 → 더빙합성 → 캡션완성 → 릴스게시 → 링크연결 → 광고집행 → 분석완료
 
+## 콘텐츠 파이프라인 (Phase 2)
+
+쿠팡 링크 → 알리 영상 수집(`scripts/fetch_video.py`) → 대본(Claude) →
+더빙+자막(`scripts/dub.py`, edge-tts PoC) → 캡션(Claude) → 수동 게시.
+상품 1개 처리 절차는 **`docs/PLAYBOOK.md`** 참조.
+
 ## 문서
 
+- 운영 매뉴얼: `docs/PLAYBOOK.md`
 - 설계 스펙: `docs/superpowers/specs/`
 - 구현 계획: `docs/superpowers/plans/`
