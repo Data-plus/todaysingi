@@ -95,3 +95,16 @@ def test_responsive_and_accessible_console_states_are_styled():
     assert "@media (max-width:980px)" in styles
     assert "@media (max-width:640px)" in styles
     assert "prefers-reduced-motion" in styles
+
+
+def test_demo_mode_disables_actions_that_need_live_supabase():
+    shell = source("admin/src/components/AppShell.tsx")
+    jobs = source("admin/src/pages/JobsPage.tsx")
+    drawer = source("admin/src/components/ProductDrawer.tsx")
+
+    assert "disabled={!live}" in shell
+    assert "disabled={syncing || !live}" in jobs
+    assert "disabled={busy || !live}" in drawer
+    assert "Supabase 연결 후 사용할 수 있습니다" in shell
+    assert "Supabase 연결 후 사용할 수 있습니다" in jobs
+    assert "Supabase 연결 후 사용할 수 있습니다" in drawer
