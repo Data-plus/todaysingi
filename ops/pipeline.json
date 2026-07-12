@@ -25,6 +25,10 @@
         {
           "stage": "caption_ready",
           "at": "2026-07-12T11:21:35"
+        },
+        {
+          "stage": "caption_ready",
+          "at": "2026-07-12T11:24:12"
         }
       ],
       "data": {
@@ -32,7 +36,8 @@
         "aliUrl": "https://ko.aliexpress.com/item/1005006821056543.html",
         "finalVideo": "ops/assets/1/final.mp4",
         "voice": "ko-KR-SunHiNeural",
-        "partnersLink": "https://link.coupang.com/a/fjBpUek5lc"
+        "partnersLink": "https://link.coupang.com/a/fjBpUek5lc",
+        "siteProductId": "1"
       },
       "note": ""
     }
