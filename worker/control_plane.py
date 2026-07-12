@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
@@ -158,6 +159,23 @@ def build_job_command(
             raise ControlPlaneError("fetch_video에는 ali_url 또는 file이 필요합니다")
         return command
 
+    if job_type == "generate_cover":
+        command = [python, str(scripts / "make_cover.py"), str(product_id)]
+        frame = payload.get("frame")
+        if frame is not None:
+            if not isinstance(frame, int) or isinstance(frame, bool) or not 1 <= frame <= 6:
+                raise ControlPlaneError("frame은 일 이상 육 이하 정수여야 합니다")
+            command.extend(["--frame", str(frame)])
+        for key in ("line1", "line2"):
+            value = payload.get(key)
+            if value is None:
+                continue
+            if (not isinstance(value, str) or not value.strip() or len(value) > 60
+                    or "\n" in value or "\r" in value):
+                raise ControlPlaneError(f"{key} 커버 문구가 올바르지 않습니다")
+            command.extend([f"--{key}", value.strip()])
+        return command
+
     if job_type == "publish_reel":
         if not job.get("approved_at"):
             raise ControlPlaneError("Instagram 게시 승인이 필요합니다")
@@ -183,6 +201,66 @@ def build_job_command(
         return command
 
     raise ControlPlaneError(f"지원하지 않는 작업 유형: {job_type}")
+
+
+def cover_asset_specs(repo_root: Path, product_id: int, *, job_id: str | None = None) -> list[dict[str, Any]]:
+    """로컬 커버 산출물을 Storage와 assets 행 사양으로 변환한다."""
+    workdir = Path(repo_root) / "ops" / "assets" / str(product_id)
+    metadata_path = workdir / "cover.json"
+    cover_path = workdir / "cover.jpg"
+    if not metadata_path.exists() or not cover_path.exists():
+        raise ControlPlaneError("cover.json 또는 cover.jpg가 없습니다")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    scores = metadata.get("scores") if isinstance(metadata.get("scores"), dict) else {}
+    recommended = metadata.get("recommendedFrame")
+    specs = []
+    for index, local_path in enumerate(sorted((workdir / "frames").glob("f*.jpg")), start=1):
+        storage_path = f"covers/{product_id}/candidate-{index:02d}.jpg"
+        score = scores.get(str(index)) if isinstance(scores.get(str(index)), dict) else {}
+        specs.append({
+            "local_path": local_path,
+            "storage_path": storage_path,
+            "row": {
+                "product_id": product_id,
+                "job_id": job_id,
+                "kind": "cover_candidate",
+                "storage_path": storage_path,
+                "mime_type": "image/jpeg",
+                "bytes": local_path.stat().st_size,
+                "review_status": "pending",
+                "metadata": {
+                    "frame": index,
+                    "score": score.get("score"),
+                    "recommended": index == recommended,
+                    "templateVersion": metadata.get("version"),
+                },
+            },
+        })
+    if not specs:
+        raise ControlPlaneError("업로드할 커버 후보 프레임이 없습니다")
+    storage_path = f"covers/{product_id}/cover.jpg"
+    specs.append({
+        "local_path": cover_path,
+        "storage_path": storage_path,
+        "row": {
+            "product_id": product_id,
+            "job_id": job_id,
+            "kind": "reel_cover",
+            "storage_path": storage_path,
+            "mime_type": "image/jpeg",
+            "bytes": cover_path.stat().st_size,
+            "review_status": "pending",
+            "metadata": {
+                "selectedFrame": metadata.get("selectedFrame"),
+                "recommendedFrame": recommended,
+                "line1": metadata.get("line1"),
+                "line2": metadata.get("line2"),
+                "thumbOffsetMs": metadata.get("thumbOffsetMs"),
+                "templateVersion": metadata.get("version"),
+            },
+        },
+    })
+    return specs
 
 
 class ControlPlaneClient:
@@ -216,6 +294,21 @@ class ControlPlaneClient:
         if not response.content:
             return None
         return response.json()
+
+    def _upload_file(self, bucket: str, storage_path: str, local_path: Path, mime_type: str):
+        encoded_path = urllib.parse.quote(storage_path, safe="/")
+        headers = {
+            "apikey": self.service_key,
+            "Authorization": f"Bearer {self.service_key}",
+            "Content-Type": mime_type,
+            "x-upsert": "true",
+        }
+        response = self.session.request(
+            "POST", f"{self.base_url}/storage/v1/object/{bucket}/{encoded_path}",
+            headers=headers, data=Path(local_path).read_bytes(), timeout=60,
+        )
+        if response.status_code >= 400:
+            raise ControlPlaneError(f"Storage {response.status_code}: {redact_text(response.text)}")
 
     def heartbeat(self, worker_id: str, *, status: str, current_job_id: str | None = None, version="0.1.0"):
         body = {
@@ -259,6 +352,25 @@ class ControlPlaneClient:
             )
         return len(rows)
 
+    def sync_cover_assets(self, product_id: int, *, job_id: str | None = None) -> dict[str, Any]:
+        specs = cover_asset_specs(self.repo_root, product_id, job_id=job_id)
+        for spec in specs:
+            self._upload_file(
+                "completed-assets", spec["storage_path"], spec["local_path"],
+                spec["row"]["mime_type"],
+            )
+        self._request(
+            "POST", "rest/v1/assets?on_conflict=storage_path",
+            json_body=[spec["row"] for spec in specs],
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        final_metadata = specs[-1]["row"]["metadata"]
+        return {
+            "cover_assets": len(specs),
+            "cover_path": specs[-1]["storage_path"],
+            "thumb_offset_ms": final_metadata.get("thumbOffsetMs"),
+        }
+
 
 def run_claimed_job(
     client, job: dict[str, Any], repo_root: Path,
@@ -285,8 +397,12 @@ def run_claimed_job(
             if completed.returncode != 0:
                 message = redact_text(completed.stderr or completed.stdout or f"exit {completed.returncode}")
                 raise ControlPlaneError(message)
+            cover_result = {}
+            if job.get("type") == "generate_cover":
+                client.update_job(job_id, progress=80)
+                cover_result = client.sync_cover_assets(_product_id(job), job_id=job_id)
             synced = client.sync_pipeline()
-            result = {"exit_code": completed.returncode, "synced_products": synced}
+            result = {"exit_code": completed.returncode, "synced_products": synced, **cover_result}
         client.update_job(
             job_id, status="succeeded", progress=100, result=result,
             lock_expires_at=None, finished_at=utc_now().isoformat(timespec="seconds"),

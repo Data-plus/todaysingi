@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "worker"))
 
-from control_plane import (ControlPlaneError, build_job_command, pipeline_product_row,
-                           redact_text, run_claimed_job)
+from control_plane import (ControlPlaneError, build_job_command, cover_asset_specs,
+                           pipeline_product_row, redact_text, run_claimed_job)
 
 
 NOW = dt.datetime(2026, 7, 12, 18, 30, tzinfo=dt.timezone.utc)
@@ -130,6 +130,66 @@ def test_publish_job_requires_explicit_approval_timestamp():
     job = {"type": "publish_reel", "product_id": 1, "payload": {}, "approved_at": None}
     with pytest.raises(ControlPlaneError, match="승인"):
         build_job_command(job, REPO)
+
+
+def test_build_generate_cover_command_validates_and_passes_overrides():
+    job = {
+        "type": "generate_cover",
+        "product_id": 2,
+        "payload": {
+            "frame": 5,
+            "line1": "키링인 줄 알았죠?",
+            "line2": "진짜 카메라입니다.",
+        },
+    }
+
+    assert build_job_command(job, REPO, python_executable="python") == [
+        "python", str(REPO / "scripts" / "make_cover.py"), "2",
+        "--frame", "5",
+        "--line1", "키링인 줄 알았죠?",
+        "--line2", "진짜 카메라입니다.",
+    ]
+
+
+@pytest.mark.parametrize("payload", [
+    {"frame": 0},
+    {"frame": 7},
+    {"frame": "2"},
+    {"line1": ""},
+    {"line2": "가" * 61},
+    {"line1": "첫 줄\n명령"},
+])
+def test_build_generate_cover_command_rejects_unsafe_payload(payload):
+    with pytest.raises(ControlPlaneError):
+        build_job_command({"type": "generate_cover", "product_id": 2, "payload": payload}, REPO)
+
+
+def test_cover_asset_specs_include_candidates_and_final_metadata(tmp_path):
+    workdir = tmp_path / "ops" / "assets" / "2"
+    frames = workdir / "frames"
+    frames.mkdir(parents=True)
+    (frames / "f01.jpg").write_bytes(b"one")
+    (frames / "f02.jpg").write_bytes(b"two")
+    (workdir / "cover.jpg").write_bytes(b"cover")
+    (workdir / "cover.json").write_text(
+        '{"recommendedFrame":2,"selectedFrame":2,"line1":"첫 줄",'
+        '"line2":"둘째 줄","thumbOffsetMs":14550,"version":1,'
+        '"scores":{"1":{"score":0.1},"2":{"score":0.9}}}',
+        encoding="utf-8",
+    )
+
+    specs = cover_asset_specs(tmp_path, 2, job_id="job-cover")
+
+    assert [spec["storage_path"] for spec in specs] == [
+        "covers/2/candidate-01.jpg",
+        "covers/2/candidate-02.jpg",
+        "covers/2/cover.jpg",
+    ]
+    assert specs[1]["row"]["kind"] == "cover_candidate"
+    assert specs[1]["row"]["metadata"]["recommended"] is True
+    assert specs[2]["row"]["kind"] == "reel_cover"
+    assert specs[2]["row"]["metadata"]["thumbOffsetMs"] == 14550
+    assert specs[2]["row"]["job_id"] == "job-cover"
 
 
 class FakeClient:
