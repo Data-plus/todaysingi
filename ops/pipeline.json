@@ -95,7 +95,13 @@
         "reelUrl": "https://www.instagram.com/reel/DargvZwlXAf/",
         "igMediaId": "18077730377306780",
         "partnersLink": "https://link.coupang.com/a/fjL6CDVKBo",
-        "siteProductId": "2"
+        "siteProductId": "2",
+        "coverImage": "ops/assets/2/cover.jpg",
+        "publishVideo": "ops/assets/2/publish.mp4",
+        "thumbOffsetMs": 14550,
+        "coverFrame": 2,
+        "coverLine1": "열쇠고리인 줄 알았죠?",
+        "coverLine2": "진짜 찍히는 카메라예요."
       },
       "note": ""
     }
