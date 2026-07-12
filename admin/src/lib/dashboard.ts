@@ -1,0 +1,163 @@
+import type {
+  AdminJob,
+  AdminProduct,
+  ConnectionInfo,
+  DeskData,
+  ExternalMetrics,
+  JobStatus,
+  ProductStage,
+} from "../types/admin";
+
+export const CONNECTION_WAITING_LABEL = "연결 대기";
+
+export const STAGE_LABELS: Record<ProductStage, string> = {
+  sourced: "상품 확정",
+  video_ready: "영상 준비",
+  script_ready: "대본 완성",
+  audio_ready: "더빙 합성",
+  caption_ready: "검수 대기",
+  published: "릴스 게시",
+  linked: "링크 연결",
+  ads_running: "광고 집행",
+  analyzed: "분석 완료",
+};
+
+export const JOB_LABELS: Record<string, string> = {
+  sync_pipeline: "관제 장부 동기화",
+  create_product: "로컬 관제 상품 생성",
+  fetch_video: "영상 수집·가공",
+  dub: "Typecast 음성 재생성",
+  publish_reel: "Instagram 릴스 게시",
+  add_product: "링크 허브 상품 추가",
+};
+
+export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
+  queued: "대기",
+  claimed: "선점됨",
+  running: "실행 중",
+  succeeded: "완료",
+  failed: "실패",
+  cancelled: "취소",
+};
+
+export const EMPTY_EXTERNAL_METRICS: ExternalMetrics = {
+  linkClicks: null,
+  orders: null,
+  revenue: null,
+  commission: null,
+  adSpend: null,
+  roas: null,
+};
+
+export function formatCurrency(value: number | null): string {
+  return value === null ? "—" : `${value.toLocaleString("ko-KR")}원`;
+}
+
+export function formatNumber(value: number | null): string {
+  return value === null ? "—" : value.toLocaleString("ko-KR");
+}
+
+export function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}%`;
+}
+
+export function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "기록 없음";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+export function relativeTime(value: string): string {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "기록 없음";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "방금 전";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}분 전`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}시간 전`;
+  return `${Math.floor(seconds / 86400)}일 전`;
+}
+
+export function conversionRate(metrics: ExternalMetrics): number | null {
+  if (metrics.linkClicks === null || metrics.orders === null || metrics.linkClicks <= 0) return null;
+  return (metrics.orders / metrics.linkClicks) * 100;
+}
+
+export function summarizeDesk(data: DeskData) {
+  const summary = {
+    activeProducts: 0,
+    queuedJobs: 0,
+    runningJobs: 0,
+    failedJobs: 0,
+    publishedProducts: 0,
+  };
+  for (const product of data.products) {
+    if (product.active) summary.activeProducts += 1;
+    if (["published", "linked", "ads_running", "analyzed"].includes(product.stage)) summary.publishedProducts += 1;
+  }
+  for (const job of data.jobs) {
+    if (job.status === "queued") summary.queuedJobs += 1;
+    if (job.status === "claimed" || job.status === "running") summary.runningJobs += 1;
+    if (job.status === "failed") summary.failedJobs += 1;
+  }
+  return summary;
+}
+
+export function productNeedsAttention(product: AdminProduct, jobs: AdminJob[]): string | null {
+  if (jobs.some((job) => job.productId === product.id && job.status === "failed")) return "실패한 작업 확인";
+  if (!product.partnersLink && ["published", "linked", "ads_running", "analyzed"].includes(product.stage)) return "파트너스 링크 필요";
+  if (product.stage === "caption_ready") return "콘텐츠 검수 필요";
+  return null;
+}
+
+export function buildConnections(data: DeskData, live: boolean): ConnectionInfo[] {
+  return [
+    {
+      id: "supabase",
+      name: "Supabase",
+      status: live ? "connected" : "waiting",
+      label: live ? "연결됨" : CONNECTION_WAITING_LABEL,
+      detail: live ? `최근 조회 ${relativeTime(data.loadedAt)}` : "관리자 환경 변수가 필요합니다.",
+    },
+    {
+      id: "worker",
+      name: "로컬 Worker",
+      status: data.worker.online ? "connected" : "waiting",
+      label: data.worker.online ? "연결됨" : CONNECTION_WAITING_LABEL,
+      detail: data.worker.detail,
+    },
+    {
+      id: "ga4",
+      name: "Google Analytics 4",
+      status: "waiting",
+      label: CONNECTION_WAITING_LABEL,
+      detail: "Property ID와 서버 측 Data API 자격 증명이 필요합니다.",
+    },
+    {
+      id: "coupang",
+      name: "쿠팡 파트너스",
+      status: "waiting",
+      label: CONNECTION_WAITING_LABEL,
+      detail: "최종 승인 후 Reporting API 키를 연결할 수 있습니다.",
+    },
+    {
+      id: "meta",
+      name: "Meta Marketing API",
+      status: "waiting",
+      label: CONNECTION_WAITING_LABEL,
+      detail: "광고 계정과 지표 수집 저장소 연결이 필요합니다.",
+    },
+    {
+      id: "typecast",
+      name: "Typecast",
+      status: data.worker.online ? "connected" : "waiting",
+      label: data.worker.online ? "Worker에서 사용 가능" : CONNECTION_WAITING_LABEL,
+      detail: "비밀키는 로컬 Worker에서만 확인합니다.",
+    },
+  ];
+}

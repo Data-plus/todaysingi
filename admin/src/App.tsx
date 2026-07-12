@@ -1,25 +1,80 @@
 import type { Session } from "@supabase/supabase-js";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { AppShell } from "./components/AppShell";
 import { Icon } from "./components/Icon";
 import { Login } from "./components/Login";
-import { jobs as demoJobs, products as demoProducts, stages } from "./data/demo";
-import type { Product } from "./data/demo";
-import { createProduct, enqueueDub, loadDeskData } from "./lib/controlDesk";
-import type { DeskData, DeskJob } from "./lib/controlDesk";
+import { ProductDrawer } from "./components/ProductDrawer";
 import { isAuthorizedAdminSession } from "./lib/auth";
+import {
+  cancelJob,
+  createProduct,
+  enqueueDub,
+  enqueuePipelineSync,
+  loadDeskData,
+  retryJob,
+} from "./lib/controlDesk";
+import { buildConnections, EMPTY_EXTERNAL_METRICS, JOB_LABELS, JOB_STATUS_LABELS, STAGE_LABELS } from "./lib/dashboard";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import { AdsPage } from "./pages/AdsPage";
+import { JobsPage } from "./pages/JobsPage";
+import { OverviewPage } from "./pages/OverviewPage";
+import { PerformancePage } from "./pages/PerformancePage";
+import { ProductsPage } from "./pages/ProductsPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import type { AdminJob, AdminView, DeskData } from "./types/admin";
 
-const nav = [
-  ["grid", "대시보드"], ["box", "상품"], ["activity", "작업"],
-  ["send", "게시"], ["chart", "광고"], ["settings", "설정"],
-] as const;
-const stageSlugs = ["sourced", "video_ready", "script_ready", "audio_ready", "caption_ready", "published", "linked", "ads_running", "analyzed"];
-const demoDesk: DeskData = {
-  products: demoProducts,
-  jobs: demoJobs,
-  worker: { online: false, label: "OFFLINE", detail: "PC를 켜면 작업을 시작합니다" },
-  queueCount: 1, reviewCount: 1, publishedCount: 0,
+const VALID_VIEWS = new Set<AdminView>(["overview", "products", "jobs", "performance", "ads", "settings"]);
+
+const DEMO_DATA: DeskData = {
+  products: [{
+    id: 1,
+    title: "불쏘는 마법지팡이",
+    stage: "linked",
+    stageLabel: STAGE_LABELS.linked,
+    price: 28_500,
+    imageUrl: "/admin/images/001.jpg",
+    coupangUrl: "https://www.coupang.com/",
+    aliUrl: null,
+    partnersLink: "https://link.coupang.com/",
+    reelUrl: "https://www.instagram.com/reel/DarULTkCZk5/",
+    instagramMediaId: null,
+    siteProductId: "001",
+    note: "데모 모드에서는 조회만 가능합니다.",
+    active: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    metrics: { ...EMPTY_EXTERNAL_METRICS },
+  }],
+  jobs: [{
+    id: "demo-job-001",
+    displayId: "JOB-DEMO01",
+    type: "sync_pipeline",
+    typeLabel: JOB_LABELS.sync_pipeline,
+    status: "succeeded",
+    statusLabel: JOB_STATUS_LABELS.succeeded,
+    productId: 1,
+    productTitle: "불쏘는 마법지팡이",
+    payload: {},
+    result: {},
+    priority: 100,
+    progress: 100,
+    attempts: 1,
+    maxAttempts: 3,
+    claimedBy: null,
+    errorSummary: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }],
+  workers: [],
+  assets: [],
+  worker: { online: false, label: "오프라인", detail: "PC를 켜면 작업을 시작합니다", version: null },
+  loadedAt: new Date().toISOString(),
 };
+
+function viewFromHash(): AdminView {
+  const hash = window.location.hash.replace(/^#\/?/, "") as AdminView;
+  return VALID_VIEWS.has(hash) ? hash : "overview";
+}
 
 function useSession() {
   const [session, setSession] = useState<Session | null | undefined>(isSupabaseConfigured ? undefined : null);
@@ -32,122 +87,195 @@ function useSession() {
   return session;
 }
 
-function Dashboard({ live }: { live: boolean }) {
-  const [active, setActive] = useState("대시보드");
-  const [search, setSearch] = useState("");
-  const [modal, setModal] = useState(false);
-  const [desk, setDesk] = useState<DeskData>(demoDesk);
-  const [busyProduct, setBusyProduct] = useState<number | null>(null);
-  const [error, setError] = useState("");
+function NewProductDialog({ open, live, submitting, onClose, onSubmit }: { open: boolean; live: boolean; submitting: boolean; onClose: () => void; onSubmit: (input: { title: string; coupangUrl: string; aliUrl?: string }) => void }) {
   const [form, setForm] = useState({ title: "", coupangUrl: "", aliUrl: "" });
-  const deferredSearch = useDeferredValue(search);
+  if (!open) return null;
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!live) return;
+    onSubmit(form);
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={onClose}>
+      <section className="form-dialog" role="dialog" aria-modal="true" aria-labelledby="new-product-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><p>NEW PRODUCT</p><h2 id="new-product-title">새 상품 등록</h2><span>쿠팡 상품을 먼저 등록하고 로컬 파이프라인을 시작합니다.</span></div><button type="button" className="icon-button" aria-label="새 상품 창 닫기" onClick={onClose}><Icon name="close" size={20}/></button></header>
+        {!live ? <p className="dialog-warning"><Icon name="alert" size={16}/>Supabase 연결 후 상품을 등록할 수 있습니다.</p> : null}
+        <form onSubmit={submit}>
+          <label htmlFor="product-title">상품명</label>
+          <input id="product-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="예: 접이식 미니 가습기"/>
+          <label htmlFor="coupang-url">쿠팡 상품 URL</label>
+          <input id="coupang-url" required type="url" value={form.coupangUrl} onChange={(event) => setForm({ ...form, coupangUrl: event.target.value })} placeholder="https://www.coupang.com/..."/>
+          <label htmlFor="ali-url">AliExpress URL <span>선택</span></label>
+          <input id="ali-url" type="url" value={form.aliUrl} onChange={(event) => setForm({ ...form, aliUrl: event.target.value })} placeholder="https://www.aliexpress.com/..."/>
+          <footer><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button" disabled={!live || submitting}>{submitting ? "등록 중…" : "상품 등록"}<Icon name="arrow" size={16}/></button></footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function Dashboard({ live, email }: { live: boolean; email: string }) {
+  const [view, setView] = useState<AdminView>(viewFromHash);
+  const [search, setSearch] = useState("");
+  const [data, setData] = useState<DeskData | null>(() => live ? null : DEMO_DATA);
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [busyProductId, setBusyProductId] = useState<number | null>(null);
+  const [busyJobId, setBusyJobId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [submittingProduct, setSubmittingProduct] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase("ko-KR"));
 
   const refresh = useCallback(async () => {
     if (!live) return;
+    setRefreshing(true);
     try {
-      setDesk(await loadDeskData());
+      setData(await loadDeskData());
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "데이터를 불러오지 못했습니다");
+      setError(cause instanceof Error ? cause.message : "관리자 데이터를 불러오지 못했습니다");
+    } finally {
+      setRefreshing(false);
     }
   }, [live]);
 
   useEffect(() => {
     void refresh();
     if (!live) return;
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [live, refresh]);
 
-  const visibleProducts = useMemo(
-    () => desk.products.filter((product) => product.title.includes(deferredSearch)),
-    [desk.products, deferredSearch],
-  );
-  const current = visibleProducts[0] || desk.products[0];
+  useEffect(() => {
+    function handleHashChange() {
+      setView(viewFromHash());
+    }
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
-  async function requestDub(product: Product) {
+  function navigate(nextView: AdminView) {
+    setView(nextView);
+    if (window.location.hash !== `#${nextView}`) window.location.hash = nextView;
+  }
+
+  const visibleProducts = useMemo(() => {
+    if (!data || !deferredSearch) return data?.products || [];
+    return data.products.filter((product) => product.title.toLocaleLowerCase("ko-KR").includes(deferredSearch) || String(product.id).includes(deferredSearch));
+  }, [data, deferredSearch]);
+  const visibleJobs = useMemo(() => {
+    if (!data || !deferredSearch) return data?.jobs || [];
+    return data.jobs.filter((job) => job.productTitle.toLocaleLowerCase("ko-KR").includes(deferredSearch) || job.typeLabel.toLocaleLowerCase("ko-KR").includes(deferredSearch) || job.displayId.toLocaleLowerCase().includes(deferredSearch));
+  }, [data, deferredSearch]);
+  const selectedProduct = data?.products.find((product) => product.id === selectedProductId) || null;
+  const selectedJobs = selectedProduct ? data?.jobs.filter((job) => job.productId === selectedProduct.id) || [] : [];
+  const selectedAssets = selectedProduct ? data?.assets.filter((asset) => asset.productId === selectedProduct.id) || [] : [];
+  const connections = useMemo(() => data ? buildConnections(data, live) : [], [data, live]);
+
+  async function requestDub(productId: number) {
     if (!live) return;
-    setBusyProduct(product.id);
+    setBusyProductId(productId);
     try {
-      await enqueueDub(product.id);
+      await enqueueDub(productId);
+      setNotice("Typecast 재더빙 작업을 대기열에 추가했습니다.");
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "작업 요청에 실패했습니다");
+      setError(cause instanceof Error ? cause.message : "더빙 작업 요청에 실패했습니다");
     } finally {
-      setBusyProduct(null);
+      setBusyProductId(null);
     }
   }
 
-  async function submitProduct(event: React.FormEvent) {
-    event.preventDefault();
-    if (!live) { setModal(false); return; }
+  async function handleJobAction(job: AdminJob, action: "cancel" | "retry") {
+    if (!live) return;
+    setBusyJobId(job.id);
     try {
-      await createProduct(form);
-      setForm({ title: "", coupangUrl: "", aliUrl: "" });
-      setModal(false);
+      if (action === "cancel") await cancelJob(job);
+      else await retryJob(job);
+      setNotice(action === "cancel" ? "작업을 취소했습니다." : "새 작업으로 다시 요청했습니다.");
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "상품 등록에 실패했습니다");
+      setError(cause instanceof Error ? cause.message : "작업 상태를 변경하지 못했습니다");
+    } finally {
+      setBusyJobId(null);
     }
   }
+
+  async function handleSync() {
+    if (!live) return;
+    setSyncing(true);
+    try {
+      await enqueuePipelineSync();
+      setNotice("파이프라인 동기화를 요청했습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "동기화 요청에 실패했습니다");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function submitProduct(input: { title: string; coupangUrl: string; aliUrl?: string }) {
+    setSubmittingProduct(true);
+    try {
+      await createProduct(input);
+      setNewProductOpen(false);
+      setNotice("새 상품과 로컬 생성 작업을 등록했습니다.");
+      await refresh();
+      navigate("products");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "상품을 등록하지 못했습니다");
+    } finally {
+      setSubmittingProduct(false);
+    }
+  }
+
+  if (!data) return <div className="loading-page"><span className="loading-spinner" aria-hidden="true"/><strong>운영 데이터를 불러오는 중입니다.</strong></div>;
+
+  let page: React.ReactNode;
+  if (view === "products") page = <ProductsPage products={data.products} search={deferredSearch} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;
+  else if (view === "jobs") page = <JobsPage jobs={visibleJobs} busyJobId={busyJobId} syncing={syncing} live={live} onCancel={(job) => void handleJobAction(job, "cancel")} onRetry={(job) => void handleJobAction(job, "retry")} onSync={() => void handleSync()}/>;
+  else if (view === "performance") page = <PerformancePage products={visibleProducts} connections={connections} onOpenSettings={() => navigate("settings")}/>;
+  else if (view === "ads") page = <AdsPage connections={connections} onOpenSettings={() => navigate("settings")}/>;
+  else if (view === "settings") page = <SettingsPage connections={connections} workers={data.workers}/>;
+  else page = <OverviewPage data={data} products={visibleProducts} onNavigate={navigate} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;
 
   return (
-    <div className="app-shell">
-      <header className="masthead">
-        <a className="brand" href="#top" aria-label="대시보드 홈"><span>TODAY'S SINGI</span><em>CONTROL DESK / 2026</em></a>
-        <nav className="desktop-nav" aria-label="주 메뉴">{nav.map(([icon, label]) => <button className={active === label ? "active" : ""} onClick={() => setActive(label)} key={label}><Icon name={icon} size={17}/>{label}</button>)}</nav>
-        <button className="new-object" onClick={() => setModal(true)}><Icon name="plus" size={17}/>새 상품</button>
-      </header>
-      {!live ? <div className="mode-banner">DEMO MODE · Supabase 연결 전 미리보기</div> : null}
-      {error ? <div className="error-banner" role="alert">{error}<button onClick={() => setError("")}>닫기</button></div> : null}
-
-      <main id="top">
-        <section className="hero-grid reveal">
-          <div className="issue-mark"><span>ISSUE</span><strong>{String(desk.products.length).padStart(2, "0")}</strong><small>SUNDAY<br/>12 JUL 2026</small></div>
-          <div className="hero-copy"><p className="eyebrow">CONTENT OPERATIONS / SEOUL</p><h1>신기한 물건이<br/><i>콘텐츠가 되는 곳.</i></h1><p className="deck">상품 한 개의 발견부터 영상, 목소리, 게시와 분석까지. 오늘의 흐름을 한눈에 지휘합니다.</p></div>
-          <div className="hero-collage" aria-label="현재 작업 상품 이미지"><div className="orange-block">OBJECT<br/>OF THE DAY</div>{current ? <img src={current.image} alt={`${current.title} 상품`} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}/> : null}<div className="caption-strip">{current ? `NO. ${String(current.id).padStart(3, "0")} — ${current.stageLabel}` : "NO ACTIVE OBJECT"}</div></div>
-        </section>
-
-        <section className="signal-bar" aria-label="운영 현황">
-          <div><span>WORKER</span><strong className={desk.worker.online ? "online" : "offline"}><i/>{desk.worker.label}</strong><small>{desk.worker.detail}</small></div>
-          <div><span>QUEUE</span><strong>{String(desk.queueCount).padStart(2, "0")}</strong><small>대기 중인 작업</small></div>
-          <div><span>IN REVIEW</span><strong>{String(desk.reviewCount).padStart(2, "0")}</strong><small>승인이 필요한 콘텐츠</small></div>
-          <div><span>PUBLISHED</span><strong>{String(desk.publishedCount).padStart(2, "0")}</strong><small>게시 완료 상품</small></div>
-        </section>
-
-        <section className="current-section reveal">
-          <div className="section-heading"><p>01 / CURRENT OBJECT</p><h2>지금 다루는 물건</h2><button onClick={() => setActive("상품")}>전체 상품 <Icon name="arrow" size={16}/></button></div>
-          {current ? <ProductFeature product={current} busy={busyProduct === current.id} onDub={() => void requestDub(current)}/> : <p className="empty-desk">등록된 상품이 없습니다. 첫 상품을 추가하세요.</p>}
-        </section>
-
-        <section className="work-section reveal">
-          <div className="section-heading"><p>02 / WORK QUEUE</p><h2>작업의 움직임</h2><label className="search"><span>상품 검색</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="이름으로 찾기"/></label></div>
-          <JobTable jobs={desk.jobs}/>
-        </section>
-      </main>
-
-      <nav className="mobile-nav" aria-label="모바일 주 메뉴">{nav.slice(0,5).map(([icon,label]) => <button className={active === label ? "active" : ""} onClick={() => setActive(label)} key={label}><Icon name={icon} size={19}/><span>{label}</span></button>)}</nav>
-      {modal ? <div className="modal-backdrop" onMouseDown={() => setModal(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onMouseDown={(e) => e.stopPropagation()}><p>NEW ENTRY</p><h2 id="modal-title">새 상품 등록</h2><form onSubmit={submitProduct}><label htmlFor="title">상품명</label><input id="title" required value={form.title} onChange={(e) => setForm({...form, title:e.target.value})} placeholder="예: 접이식 미니 가습기"/><label htmlFor="url">쿠팡 상품 URL</label><input id="url" required type="url" value={form.coupangUrl} onChange={(e) => setForm({...form, coupangUrl:e.target.value})} placeholder="https://..."/><label htmlFor="ali">AliExpress URL <small>선택</small></label><input id="ali" type="url" value={form.aliUrl} onChange={(e) => setForm({...form, aliUrl:e.target.value})} placeholder="https://..."/><div><button type="button" onClick={() => setModal(false)}>취소</button><button className="primary" type="submit">상품 만들기 <Icon name="arrow" size={16}/></button></div></form></section></div> : null}
-    </div>
+    <AppShell
+      view={view}
+      onNavigate={navigate}
+      search={search}
+      onSearch={setSearch}
+      onNewProduct={() => setNewProductOpen(true)}
+      refreshing={refreshing}
+      onRefresh={() => void refresh()}
+      lastRefresh={data.loadedAt}
+      email={email}
+      live={live}
+      onSignOut={() => void supabase?.auth.signOut()}
+    >
+      {!live ? <div className="mode-banner" role="status"><Icon name="alert" size={15}/>데모 모드 · Supabase 연결 전 미리보기</div> : null}
+      {error ? <div className="app-message message-error" role="alert"><Icon name="alert" size={17}/><span>{error}</span><button type="button" aria-label="오류 닫기" onClick={() => setError("")}><Icon name="close" size={16}/></button></div> : null}
+      {notice ? <div className="app-message message-success" role="status"><Icon name="check" size={17}/><span>{notice}</span><button type="button" aria-label="알림 닫기" onClick={() => setNotice("")}><Icon name="close" size={16}/></button></div> : null}
+      {page}
+      <NewProductDialog open={newProductOpen} live={live} submitting={submittingProduct} onClose={() => setNewProductOpen(false)} onSubmit={(input) => void submitProduct(input)}/>
+      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)}/> : null}
+    </AppShell>
   );
-}
-
-function ProductFeature({ product, busy, onDub }: { product: Product; busy: boolean; onDub: () => void }) {
-  const reached = Math.max(0, stageSlugs.indexOf(product.stage));
-  return <article className="object-feature"><div className="object-photo"><span>OBJECT {String(product.id).padStart(3,"0")}</span><img src={product.image} alt={product.title} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}/></div><div className="object-story"><div className="stamp">{product.stageLabel}</div><p className="updated">UPDATED {product.updatedAt}</p><h3>{product.title}</h3><p className="price">{product.price}</p><p className="caption">{product.caption}</p><div className="pipeline" aria-label="콘텐츠 제작 단계">{stages.map((stage,index) => <div className={index <= reached ? "done" : ""} key={stage}><i/><span>{String(index+1).padStart(2,"0")}</span><b>{stage}</b></div>)}</div><div className="actions"><button className="primary"><Icon name="play" size={17}/>영상 검수하기</button><button onClick={onDub} disabled={busy}>{busy ? "요청 중…" : "Typecast 재더빙"}<Icon name="arrow" size={16}/></button></div></div></article>;
-}
-
-function JobTable({ jobs }: { jobs: DeskJob[] }) {
-  return <div className="job-table" role="table" aria-label="최근 작업"><div className="job-row head" role="row"><span>작업</span><span>대상</span><span>상태</span><span>시간</span></div>{jobs.length ? jobs.map((job) => <button className="job-row" role="row" key={job.id}><span><small>{job.id}</small>{job.name}</span><span>{job.product}</span><span><i className={job.status === "완료" ? "ok" : job.status === "실패" ? "fail" : "wait"}/>{job.status}</span><span>{job.time}<Icon name="arrow" size={16}/></span></button>) : <p className="empty-desk">아직 작업 기록이 없습니다.</p>}</div>;
 }
 
 function App() {
   const session = useSession();
-  if (!isSupabaseConfigured) return <Dashboard live={false}/>;
-  if (session === undefined) return <div className="loading-page">CONTROL DESK 불러오는 중…</div>;
+  if (!isSupabaseConfigured) return <Dashboard live={false} email="demo@todaysingi.local"/>;
+  if (session === undefined) return <div className="loading-page"><span className="loading-spinner" aria-hidden="true"/><strong>관리자 인증을 확인하는 중입니다.</strong></div>;
   if (!session) return <Login/>;
-  if (!isAuthorizedAdminSession(session)) return <main className="login-page"><section className="login-editorial"><p>ACCESS DENIED</p><h1>허용되지 않은<br/>GitHub 계정입니다.</h1><button onClick={() => void supabase?.auth.signOut()}>로그아웃</button></section></main>;
-  return <Dashboard live/>;
+  if (!isAuthorizedAdminSession(session)) return <main className="login-page"><section className="login-editorial"><p>ACCESS DENIED</p><h1>허용되지 않은 GitHub 계정입니다.</h1><p className="login-copy">등록된 관리자 계정으로 다시 로그인하세요.</p><button onClick={() => void supabase?.auth.signOut()}>로그아웃</button></section></main>;
+  return <Dashboard live email={session.user.email || "plusmg@gmail.com"}/>;
 }
 
 export default App;

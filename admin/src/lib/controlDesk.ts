@@ -1,111 +1,143 @@
-import type { Product } from "../data/demo";
+import {
+  EMPTY_EXTERNAL_METRICS,
+  JOB_LABELS,
+  JOB_STATUS_LABELS,
+  STAGE_LABELS,
+  relativeTime,
+} from "./dashboard";
 import { supabase } from "./supabase";
+import type {
+  AdminAsset,
+  AdminJob,
+  AdminProduct,
+  AdminWorker,
+  DeskData,
+  JobStatus,
+  ProductStage,
+} from "../types/admin";
 
-export type DeskJob = {
-  id: string;
-  name: string;
-  product: string;
-  status: string;
-  time: string;
-};
+const SIDE_EFFECT_JOB_TYPES = new Set(["publish_reel", "ads_create", "ads_launch"]);
 
-export type WorkerSignal = {
-  online: boolean;
-  label: string;
-  detail: string;
-};
-
-export type DeskData = {
-  products: Product[];
-  jobs: DeskJob[];
-  worker: WorkerSignal;
-  queueCount: number;
-  reviewCount: number;
-  publishedCount: number;
-};
-
-const stageLabels: Record<string, string> = {
-  sourced: "상품 확정", video_ready: "영상 준비", script_ready: "대본 완성",
-  audio_ready: "더빙 합성", caption_ready: "검수 대기", published: "릴스 게시",
-  linked: "링크 연결", ads_running: "광고 집행", analyzed: "분석 완료",
-};
-
-const jobLabels: Record<string, string> = {
-  sync_pipeline: "관제 장부 동기화", create_product: "로컬 관제 상품 생성", fetch_video: "영상 수집·가공",
-  dub: "Typecast 음성 재생성", publish_reel: "Instagram 릴스 게시",
-  add_product: "링크 허브 상품 추가",
-};
-
-const statusLabels: Record<string, string> = {
-  queued: "대기 중", claimed: "선점됨", running: "처리 중", succeeded: "완료",
-  failed: "실패", cancelled: "취소됨",
-};
-
-function relativeTime(value: string): string {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
-  if (seconds < 60) return "방금 전";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}분 전`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}시간 전`;
-  return `${Math.floor(seconds / 86400)}일 전`;
-}
-
-function formatUpdated(value: string): string {
-  const date = new Date(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-    hour12: false,
-  }).format(date).replace(/\. /g, ".");
+function requireSupabase() {
+  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다");
+  return supabase;
 }
 
 export async function loadDeskData(): Promise<DeskData> {
-  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다");
-  const [productsResult, jobsResult, workersResult] = await Promise.all([
-    supabase.from("products").select("*").order("updated_at", { ascending: false }),
-    supabase.from("jobs").select("id,type,status,product_id,created_at").order("created_at", { ascending: false }).limit(20),
-    supabase.from("workers").select("id,status,last_seen_at").order("last_seen_at", { ascending: false }).limit(1),
+  const client = requireSupabase();
+  const [productsResult, jobsResult, workersResult, assetsResult] = await Promise.all([
+    client.from("products").select("*").order("updated_at", { ascending: false }),
+    client
+      .from("jobs")
+      .select("id,type,status,product_id,payload,result,priority,progress,attempts,max_attempts,claimed_by,error_summary,created_at,updated_at")
+      .order("created_at", { ascending: false })
+      .limit(100),
+    client
+      .from("workers")
+      .select("id,name,status,current_job_id,version,last_seen_at")
+      .order("last_seen_at", { ascending: false }),
+    client
+      .from("assets")
+      .select("id,product_id,job_id,kind,storage_path,mime_type,bytes,duration_seconds,review_status,created_at")
+      .order("created_at", { ascending: false })
+      .limit(100),
   ]);
-  const error = productsResult.error || jobsResult.error || workersResult.error;
+  const error = productsResult.error || jobsResult.error || workersResult.error || assetsResult.error;
   if (error) throw error;
 
-  const products: Product[] = (productsResult.data || []).map((row) => ({
-    id: row.id,
-    title: row.title,
-    stage: row.stage,
-    stageLabel: stageLabels[row.stage] || row.stage,
-    updatedAt: formatUpdated(row.updated_at),
-    image: row.image_url || `/admin/images/${String(row.id).padStart(3, "0")}.jpg`,
-    price: typeof row.price === "number" ? `${row.price.toLocaleString("ko-KR")}원` : "가격 미등록",
-    caption: row.note || "다음 작업을 선택해 콘텐츠 제작을 이어가세요.",
-  }));
+  const products: AdminProduct[] = (productsResult.data || []).map((row) => {
+    const stage = row.stage as ProductStage;
+    return {
+      id: Number(row.id),
+      title: row.title,
+      stage,
+      stageLabel: STAGE_LABELS[stage] || row.stage,
+      price: typeof row.price === "number" ? row.price : null,
+      imageUrl: row.image_url || null,
+      coupangUrl: row.coupang_url,
+      aliUrl: row.ali_url || null,
+      partnersLink: row.partners_link || null,
+      reelUrl: row.reel_url || null,
+      instagramMediaId: row.ig_media_id || null,
+      siteProductId: row.site_product_id || null,
+      note: row.note || "",
+      active: typeof row.active === "boolean" ? row.active : true,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      metrics: { ...EMPTY_EXTERNAL_METRICS },
+    };
+  });
   const titleById = new Map(products.map((product) => [product.id, product.title]));
-  const jobs: DeskJob[] = (jobsResult.data || []).map((row) => ({
-    id: `JOB-${String(row.id).slice(0, 6).toUpperCase()}`,
-    name: jobLabels[row.type] || row.type,
-    product: row.product_id ? titleById.get(row.product_id) || `OBJECT ${String(row.product_id).padStart(3, "0")}` : "CONTROL DESK",
-    status: statusLabels[row.status] || row.status,
-    time: relativeTime(row.created_at),
+  const jobs: AdminJob[] = (jobsResult.data || []).map((row) => {
+    const status = row.status as JobStatus;
+    const productId = row.product_id === null ? null : Number(row.product_id);
+    return {
+      id: row.id,
+      displayId: `JOB-${String(row.id).slice(0, 6).toUpperCase()}`,
+      type: row.type,
+      typeLabel: JOB_LABELS[row.type] || row.type,
+      status,
+      statusLabel: JOB_STATUS_LABELS[status] || row.status,
+      productId,
+      productTitle: productId ? titleById.get(productId) || `상품 ${productId}` : "전체 시스템",
+      payload: row.payload || {},
+      result: row.result || {},
+      priority: Number(row.priority || 100),
+      progress: Number(row.progress || 0),
+      attempts: Number(row.attempts || 0),
+      maxAttempts: Number(row.max_attempts || 3),
+      claimedBy: row.claimed_by || null,
+      errorSummary: row.error_summary || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
+  const workers: AdminWorker[] = (workersResult.data || []).map((row) => {
+    const lastSeen = new Date(row.last_seen_at).getTime();
+    const online = row.status !== "offline" && row.status !== "error" && Date.now() - lastSeen < 60_000;
+    return {
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      online,
+      statusLabel: online ? (row.status === "busy" ? "작업 중" : "온라인") : "오프라인",
+      currentJobId: row.current_job_id || null,
+      version: row.version || null,
+      lastSeenAt: row.last_seen_at,
+    };
+  });
+  const assets: AdminAsset[] = (assetsResult.data || []).map((row) => ({
+    id: row.id,
+    productId: Number(row.product_id),
+    jobId: row.job_id || null,
+    kind: row.kind,
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+    bytes: typeof row.bytes === "number" ? row.bytes : null,
+    durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
+    reviewStatus: row.review_status,
+    createdAt: row.created_at,
   }));
-  const latestWorker = workersResult.data?.[0];
-  const lastSeen = latestWorker ? new Date(latestWorker.last_seen_at).getTime() : 0;
-  const online = Boolean(latestWorker && latestWorker.status !== "offline" && Date.now() - lastSeen < 45_000);
+  const latestWorker = workers[0];
 
   return {
     products,
     jobs,
+    workers,
+    assets,
     worker: {
-      online,
-      label: online ? latestWorker.status === "busy" ? "BUSY" : "ONLINE" : "OFFLINE",
-      detail: latestWorker ? `마지막 신호 ${relativeTime(latestWorker.last_seen_at)}` : "Worker 연결 기록 없음",
+      online: Boolean(latestWorker?.online),
+      label: latestWorker?.statusLabel || "오프라인",
+      detail: latestWorker ? `마지막 신호 ${relativeTime(latestWorker.lastSeenAt)}` : "Worker 연결 기록 없음",
+      version: latestWorker?.version || null,
     },
-    queueCount: (jobsResult.data || []).filter((job) => job.status === "queued").length,
-    reviewCount: products.filter((product) => product.stage === "caption_ready").length,
-    publishedCount: products.filter((product) => ["published", "linked", "ads_running", "analyzed"].includes(product.stage)).length,
+    loadedAt: new Date().toISOString(),
   };
 }
 
 export async function enqueueDub(productId: number): Promise<void> {
-  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다");
-  const { error } = await supabase.from("jobs").insert({
+  const client = requireSupabase();
+  const { error } = await client.from("jobs").insert({
     product_id: productId,
     type: "dub",
     payload: { emotion: "toneup", intensity: 1, rate: "-5%" },
@@ -114,13 +146,61 @@ export async function enqueueDub(productId: number): Promise<void> {
   if (error) throw error;
 }
 
+export async function enqueuePipelineSync(): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await client.from("jobs").insert({
+    type: "sync_pipeline",
+    payload: { requested_from: "admin" },
+    idempotency_key: `sync_pipeline:${crypto.randomUUID()}`,
+    priority: 20,
+  });
+  if (error) throw error;
+}
+
+export async function cancelJob(job: AdminJob): Promise<void> {
+  const cancellable = job.status === "queued";
+  if (!cancellable) throw new Error("대기 중인 작업만 취소할 수 있습니다");
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("jobs")
+    .update({ status: "cancelled", error_summary: "관리자 요청으로 취소" })
+    .eq("id", job.id)
+    .eq("status", "queued")
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("작업 상태가 이미 변경되어 취소하지 못했습니다");
+}
+
+export async function retryJob(job: AdminJob): Promise<void> {
+  const retryable = job.status === "failed" || job.status === "cancelled";
+  if (!retryable) throw new Error("실패 또는 취소된 작업만 다시 요청할 수 있습니다");
+  if (SIDE_EFFECT_JOB_TYPES.has(job.type) || job.type.startsWith("ads_")) {
+    throw new Error("게시와 광고 작업은 검토 후 새로 승인해야 합니다");
+  }
+  const client = requireSupabase();
+  const { error } = await client.from("jobs").insert({
+    product_id: job.productId,
+    type: job.type,
+    payload: job.payload,
+    priority: job.priority,
+    max_attempts: job.maxAttempts,
+    idempotency_key: `retry:${job.id}:${crypto.randomUUID()}`,
+  });
+  if (error) throw error;
+}
+
 export async function createProduct(input: { title: string; coupangUrl: string; aliUrl?: string }): Promise<void> {
-  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다");
-  const { data: latest, error: readError } = await supabase
-    .from("products").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
+  const client = requireSupabase();
+  const { data: latest, error: readError } = await client
+    .from("products")
+    .select("id")
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (readError) throw readError;
-  const productId = (latest?.id || 0) + 1;
-  const { error } = await supabase.from("products").insert({
+  const productId = Number(latest?.id || 0) + 1;
+  const { error } = await client.from("products").insert({
     id: productId,
     title: input.title.trim(),
     coupang_url: input.coupangUrl,
@@ -128,12 +208,14 @@ export async function createProduct(input: { title: string; coupangUrl: string; 
     stage: "sourced",
   });
   if (error) throw error;
-  const { error: jobError } = await supabase.from("jobs").insert({
+  const { error: jobError } = await client.from("jobs").insert({
     product_id: productId,
     type: "create_product",
     payload: {
-      title: input.title.trim(), coupang_url: input.coupangUrl,
-      ali_url: input.aliUrl || null, note: "온라인 관리자에서 등록",
+      title: input.title.trim(),
+      coupang_url: input.coupangUrl,
+      ali_url: input.aliUrl || null,
+      note: "온라인 관리자에서 등록",
     },
     idempotency_key: `create_product:${productId}`,
     priority: 10,
