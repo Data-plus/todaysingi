@@ -6,7 +6,8 @@ import { jobs as demoJobs, products as demoProducts, stages } from "./data/demo"
 import type { Product } from "./data/demo";
 import { createProduct, enqueueDub, loadDeskData } from "./lib/controlDesk";
 import type { DeskData, DeskJob } from "./lib/controlDesk";
-import { adminEmail, isSupabaseConfigured, supabase } from "./lib/supabase";
+import { isAuthorizedAdminSession } from "./lib/auth";
+import { isSupabaseConfigured, supabase } from "./lib/supabase";
 
 const nav = [
   ["grid", "대시보드"], ["box", "상품"], ["activity", "작업"],
@@ -145,7 +146,7 @@ function App() {
   if (!isSupabaseConfigured) return <Dashboard live={false}/>;
   if (session === undefined) return <div className="loading-page">CONTROL DESK 불러오는 중…</div>;
   if (!session) return <Login/>;
-  if (session.user.email?.toLowerCase() !== adminEmail) return <main className="login-page"><section className="login-editorial"><p>ACCESS DENIED</p><h1>허용되지 않은<br/>계정입니다.</h1><button onClick={() => void supabase?.auth.signOut()}>로그아웃</button></section></main>;
+  if (!isAuthorizedAdminSession(session)) return <main className="login-page"><section className="login-editorial"><p>ACCESS DENIED</p><h1>허용되지 않은<br/>GitHub 계정입니다.</h1><button onClick={() => void supabase?.auth.signOut()}>로그아웃</button></section></main>;
   return <Dashboard live/>;
 }
 
