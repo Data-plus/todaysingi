@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 ops/dashboard.html
 ops/assets/
+.env
