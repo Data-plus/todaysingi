@@ -81,6 +81,7 @@ function makeAvatarFallback(name) {
 
 function renderProducts(products) {
   const root = document.getElementById("products");
+  root.replaceChildren();
   for (const p of products) {
     const card = document.createElement("article");
     card.className = "card";
@@ -125,6 +126,31 @@ function showStatus(message) {
   status.hidden = false;
 }
 
+function hideStatus() {
+  document.getElementById("status").hidden = true;
+}
+
+const SEARCH_MIN_ITEMS = 5; // 활성 상품이 이 수 이상일 때만 검색창 노출
+
+function setupSearch(items) {
+  if (items.length < SEARCH_MIN_ITEMS) return;
+  const box = document.getElementById("search-box");
+  const input = document.getElementById("search");
+  box.hidden = false;
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    const filtered = q
+      ? items.filter((p) => displayName(p).toLowerCase().includes(q))
+      : items;
+    renderProducts(filtered);
+    if (filtered.length === 0) {
+      showStatus("검색 결과가 없어요.");
+    } else {
+      hideStatus();
+    }
+  });
+}
+
 async function init() {
   setupAnalytics();
   try {
@@ -140,6 +166,7 @@ async function init() {
       return;
     }
     renderProducts(items);
+    setupSearch(items);
   } catch (e) {
     showStatus("상품을 불러오지 못했어요. 잠시 후 새로고침해 주세요.");
   }
