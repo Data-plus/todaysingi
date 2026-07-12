@@ -12,6 +12,7 @@
 가져가므로 필수) → 컨테이너 생성(REELS) → 처리 폴링 → 게시 → 관제탑 published.
 """
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,30 @@ def build_container_params(video_url, caption, token, thumb_offset_ms=None):
     if thumb_offset_ms is not None:
         params["thumb_offset"] = thumb_offset_ms
     return params
+
+
+def choose_publish_video(workdir):
+    """커버가 붙은 게시용 영상이 있으면 우선하고, 없으면 기존 final을 쓴다."""
+    workdir = Path(workdir)
+    publish = workdir / "publish.mp4"
+    return publish if publish.exists() else workdir / "final.mp4"
+
+
+def read_cover_thumb_offset(workdir, *, video_duration=None):
+    """cover.json의 시점을 읽고 실제 게시 영상 범위인지 검증한다."""
+    metadata_path = Path(workdir) / "cover.json"
+    if not metadata_path.exists():
+        return None
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    value = metadata.get("thumbOffsetMs")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError("cover.json thumbOffsetMs가 올바르지 않습니다")
+    duration = video_duration
+    if duration is None:
+        duration = probe_duration(choose_publish_video(workdir))
+    if value >= int(duration * 1000):
+        raise ValueError("cover.json thumbOffsetMs가 게시 영상 범위를 벗어났습니다")
+    return value
 
 
 def mean_luminance(image_path):
@@ -204,7 +229,7 @@ def main(argv=None):
         return 1
 
     workdir = ASSETS_ROOT / str(args.id)
-    final_mp4 = workdir / "final.mp4"
+    final_mp4 = choose_publish_video(workdir)
     caption_file = workdir / "caption.txt"
     if not final_mp4.exists():
         print(f"{final_mp4} 가 없습니다. dub.py 먼저.", file=sys.stderr)
@@ -214,14 +239,25 @@ def main(argv=None):
         return 1
     caption = caption_file.read_text(encoding="utf-8").strip()
 
+    print(f"게시 영상: {final_mp4.name}")
     url = public_video_url(args.id) if args.skip_host else host_video(args.id, final_mp4)
 
     thumb_ms = None
     if not args.no_thumb:
+        try:
+            cover_thumb_ms = read_cover_thumb_offset(workdir) if final_mp4.name == "publish.mp4" else None
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"커버 설정 오류: {exc}", file=sys.stderr)
+            return 1
         thumb_ms = args.thumb_offset if args.thumb_offset is not None \
+            else cover_thumb_ms if cover_thumb_ms is not None \
             else pick_thumb_offset_ms(final_mp4)
+        if thumb_ms is not None and thumb_ms >= int(probe_duration(final_mp4) * 1000):
+            print("--thumb-offset이 게시 영상 범위를 벗어났습니다", file=sys.stderr)
+            return 1
         if thumb_ms is not None:
-            print(f"커버 프레임: {thumb_ms / 1000:.1f}초 지점 (가장 밝은 프레임)")
+            source = "생성 커버" if cover_thumb_ms is not None and thumb_ms == cover_thumb_ms else "선택 프레임"
+            print(f"커버 프레임: {thumb_ms / 1000:.2f}초 지점 ({source})")
 
     if args.dry_run:
         print(f"\n[dry-run] 게시 준비 완료 — 영상: {url}")
@@ -230,7 +266,9 @@ def main(argv=None):
         return 0
 
     print("컨테이너 생성 중...")
-    container = create_container(ig_id, build_container_params(url, caption, token))
+    container = create_container(
+        ig_id, build_container_params(url, caption, token, thumb_offset_ms=thumb_ms),
+    )
     print(f"컨테이너: {container} — 영상 처리 대기")
     wait_until_ready(container, token)
     media_id = publish_container(ig_id, container, token)

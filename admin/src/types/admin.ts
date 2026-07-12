@@ -85,6 +85,8 @@ export type AdminAsset = {
   bytes: number | null;
   durationSeconds: number | null;
   reviewStatus: string;
+  metadata: Record<string, unknown>;
+  signedUrl: string | null;
   createdAt: string;
 };
 

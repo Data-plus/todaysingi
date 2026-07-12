@@ -3,7 +3,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from publish_reel import (build_container_params, choose_offset,
-                          mean_luminance, next_poll_action, public_video_url)
+                          choose_publish_video, mean_luminance,
+                          next_poll_action, public_video_url,
+                          read_cover_thumb_offset)
 
 
 def test_public_video_url():
@@ -48,3 +50,34 @@ def test_next_poll_action_transitions():
     assert next_poll_action("EXPIRED", waited_s=10, timeout_s=300) == "error"
     assert next_poll_action("IN_PROGRESS", waited_s=301, timeout_s=300) == "error"
     assert next_poll_action("PUBLISHED", waited_s=10, timeout_s=300) == "publish"
+
+
+def test_choose_publish_video_prefers_cover_appended_version(tmp_path):
+    final = tmp_path / "final.mp4"
+    publish = tmp_path / "publish.mp4"
+    final.write_bytes(b"final")
+
+    assert choose_publish_video(tmp_path) == final
+
+    publish.write_bytes(b"publish")
+    assert choose_publish_video(tmp_path) == publish
+
+
+def test_read_cover_thumb_offset_validates_video_range(tmp_path):
+    (tmp_path / "cover.json").write_text('{"thumbOffsetMs":14550}', encoding="utf-8")
+
+    assert read_cover_thumb_offset(tmp_path, video_duration=14.8) == 14550
+
+    (tmp_path / "cover.json").write_text('{"thumbOffsetMs":15000}', encoding="utf-8")
+    try:
+        read_cover_thumb_offset(tmp_path, video_duration=14.8)
+    except ValueError as exc:
+        assert "범위" in str(exc)
+    else:
+        raise AssertionError("영상 밖 thumb_offset을 거부해야 합니다")
+
+
+def test_publish_main_passes_selected_thumb_offset_to_container():
+    source = (Path(__file__).resolve().parent.parent / "scripts" / "publish_reel.py").read_text(encoding="utf-8")
+
+    assert "build_container_params(url, caption, token, thumb_offset_ms=thumb_ms)" in source
