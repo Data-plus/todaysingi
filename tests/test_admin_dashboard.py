@@ -115,3 +115,32 @@ def test_worker_without_recent_heartbeat_is_offline_not_unconfigured():
 
     assert 'label: data.worker.online ? "연결됨" : "오프라인"' in dashboard
     assert 'status: data.worker.online ? "connected" : "waiting"' in dashboard
+
+
+def test_cover_editor_exposes_candidates_copy_and_real_generate_action():
+    editor = source("admin/src/components/CoverEditor.tsx")
+    drawer = source("admin/src/components/ProductDrawer.tsx")
+    app = source("admin/src/App.tsx")
+    control_desk = source("admin/src/lib/controlDesk.ts")
+
+    assert "릴스 커버" in editor
+    assert "cover_candidate" in editor
+    assert "recommended" in editor
+    assert "첫 번째 줄" in editor
+    assert "두 번째 줄" in editor
+    assert "커버 생성" in editor
+    assert "CoverEditor" in drawer
+    assert "enqueueGenerateCover" in app
+    assert "function enqueueGenerateCover" in control_desk
+    assert 'type: "generate_cover"' in control_desk
+
+
+def test_private_cover_assets_receive_signed_urls_without_public_bucket():
+    types = source("admin/src/types/admin.ts")
+    control_desk = source("admin/src/lib/controlDesk.ts")
+
+    assert "metadata: Record<string, unknown>" in types
+    assert "signedUrl: string | null" in types
+    assert 'from("completed-assets")' in control_desk
+    assert "createSignedUrls" in control_desk
+    assert "getPublicUrl" not in control_desk

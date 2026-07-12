@@ -38,7 +38,7 @@ export async function loadDeskData(): Promise<DeskData> {
       .order("last_seen_at", { ascending: false }),
     client
       .from("assets")
-      .select("id,product_id,job_id,kind,storage_path,mime_type,bytes,duration_seconds,review_status,created_at")
+      .select("id,product_id,job_id,kind,storage_path,mime_type,bytes,duration_seconds,review_status,metadata,created_at")
       .order("created_at", { ascending: false })
       .limit(100),
   ]);
@@ -116,8 +116,19 @@ export async function loadDeskData(): Promise<DeskData> {
     bytes: typeof row.bytes === "number" ? row.bytes : null,
     durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
     reviewStatus: row.review_status,
+    metadata: row.metadata || {},
+    signedUrl: null,
     createdAt: row.created_at,
   }));
+  if (assets.length) {
+    const { data: signedAssets } = await client.storage
+      .from("completed-assets")
+      .createSignedUrls(assets.map((asset) => asset.storagePath), 3600);
+    const signedByPath = new Map(
+      (signedAssets || []).filter((asset) => asset.signedUrl).map((asset) => [asset.path, asset.signedUrl]),
+    );
+    for (const asset of assets) asset.signedUrl = signedByPath.get(asset.storagePath) || null;
+  }
   const latestWorker = workers[0];
 
   return {
@@ -153,6 +164,25 @@ export async function enqueuePipelineSync(): Promise<void> {
     payload: { requested_from: "admin" },
     idempotency_key: `sync_pipeline:${crypto.randomUUID()}`,
     priority: 20,
+  });
+  if (error) throw error;
+}
+
+export async function enqueueGenerateCover(
+  productId: number,
+  input: { frame?: number; line1?: string; line2?: string } = {},
+): Promise<void> {
+  const client = requireSupabase();
+  const payload: Record<string, string | number> = {};
+  if (input.frame !== undefined) payload.frame = input.frame;
+  if (input.line1?.trim()) payload.line1 = input.line1.trim();
+  if (input.line2?.trim()) payload.line2 = input.line2.trim();
+  const { error } = await client.from("jobs").insert({
+    product_id: productId,
+    type: "generate_cover",
+    payload,
+    priority: 40,
+    idempotency_key: `generate_cover:${productId}:${crypto.randomUUID()}`,
   });
   if (error) throw error;
 }

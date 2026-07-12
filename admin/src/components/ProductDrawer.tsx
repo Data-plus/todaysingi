@@ -3,12 +3,13 @@ import { Icon } from "./Icon";
 import { StatusBadge } from "./StatusBadge";
 import { conversionRate, formatCurrency, formatDateTime, formatNumber, formatPercent } from "../lib/dashboard";
 import type { AdminAsset, AdminJob, AdminProduct } from "../types/admin";
+import { CoverEditor, type CoverGenerateInput } from "./CoverEditor";
 
 function ExternalLink({ href, label }: { href: string | null; label: string }) {
   return href ? <a href={href} target="_blank" rel="noreferrer">{label}<Icon name="external" size={14}/></a> : <span className="missing-link">{label} 미등록</span>;
 }
 
-export function ProductDrawer({ product, jobs, assets, busy, live, onClose, onDub }: { product: AdminProduct; jobs: AdminJob[]; assets: AdminAsset[]; busy: boolean; live: boolean; onClose: () => void; onDub: () => void }) {
+export function ProductDrawer({ product, jobs, assets, busy, coverBusy, workerOnline, live, onClose, onDub, onGenerateCover }: { product: AdminProduct; jobs: AdminJob[]; assets: AdminAsset[]; busy: boolean; coverBusy: boolean; workerOnline: boolean; live: boolean; onClose: () => void; onDub: () => void; onGenerateCover: (input: CoverGenerateInput) => void }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -35,6 +36,8 @@ export function ProductDrawer({ product, jobs, assets, busy, live, onClose, onDu
           <section className="drawer-section"><div className="drawer-section-title"><h3>상품 링크</h3></div><div className="link-list"><ExternalLink href={product.coupangUrl} label="쿠팡 원본"/><ExternalLink href={product.aliUrl} label="AliExpress"/><ExternalLink href={product.partnersLink} label="파트너스 링크"/><ExternalLink href={product.reelUrl} label="Instagram 릴스"/></div></section>
 
           <section className="drawer-section"><div className="drawer-section-title"><h3>상품 성과</h3><span>외부 API 연결 전</span></div><div className="drawer-metrics"><div><span>클릭</span><strong>{formatNumber(product.metrics.linkClicks)}</strong></div><div><span>주문</span><strong>{formatNumber(product.metrics.orders)}</strong></div><div><span>전환율</span><strong>{formatPercent(conversionRate(product.metrics))}</strong></div><div><span>매출</span><strong>{formatCurrency(product.metrics.revenue)}</strong></div><div><span>광고비</span><strong>{formatCurrency(product.metrics.adSpend)}</strong></div><div><span>ROAS</span><strong>{formatPercent(product.metrics.roas)}</strong></div></div><p className="drawer-help"><Icon name="link" size={14}/>성과 데이터 연결 후 실제 값으로 바뀝니다.</p></section>
+
+          <CoverEditor productId={product.id} assets={assets} workerOnline={workerOnline} live={live} busy={coverBusy} onGenerate={onGenerateCover}/>
 
           <section className="drawer-section"><div className="drawer-section-title"><h3>콘텐츠 자산</h3><span>{assets.length}개</span></div>{assets.length ? <div className="asset-list">{assets.map((asset) => <article key={asset.id}><span className="asset-icon"><Icon name={asset.kind === "final_video" ? "play" : "box"} size={17}/></span><div><strong>{asset.kind === "final_video" ? "완성 영상" : "썸네일"}</strong><p>{asset.mimeType} · {asset.bytes ? `${Math.round(asset.bytes / 1024 / 1024)}MB` : "크기 미기록"}</p></div><StatusBadge status={asset.reviewStatus === "approved" ? "connected" : "waiting"} label={asset.reviewStatus === "approved" ? "승인" : "검수 대기"}/></article>)}</div> : <div className="inline-empty">등록된 완성 자산이 없습니다.</div>}</section>
 

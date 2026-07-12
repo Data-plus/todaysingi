@@ -9,6 +9,7 @@ import {
   cancelJob,
   createProduct,
   enqueueDub,
+  enqueueGenerateCover,
   enqueuePipelineSync,
   loadDeskData,
   retryJob,
@@ -22,6 +23,7 @@ import { PerformancePage } from "./pages/PerformancePage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AdminJob, AdminView, DeskData } from "./types/admin";
+import type { CoverGenerateInput } from "./components/CoverEditor";
 
 const VALID_VIEWS = new Set<AdminView>(["overview", "products", "jobs", "performance", "ads", "settings"]);
 
@@ -123,6 +125,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
   const [newProductOpen, setNewProductOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [busyProductId, setBusyProductId] = useState<number | null>(null);
+  const [busyCoverProductId, setBusyCoverProductId] = useState<number | null>(null);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [submittingProduct, setSubmittingProduct] = useState(false);
@@ -188,6 +191,20 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
       setError(cause instanceof Error ? cause.message : "더빙 작업 요청에 실패했습니다");
     } finally {
       setBusyProductId(null);
+    }
+  }
+
+  async function requestCover(productId: number, input: CoverGenerateInput) {
+    if (!live) return;
+    setBusyCoverProductId(productId);
+    try {
+      await enqueueGenerateCover(productId, input);
+      setNotice("릴스 커버 생성 작업을 대기열에 추가했습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "커버 생성 요청에 실패했습니다");
+    } finally {
+      setBusyCoverProductId(null);
     }
   }
 
@@ -264,7 +281,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
       {notice ? <div className="app-message message-success" role="status"><Icon name="check" size={17}/><span>{notice}</span><button type="button" aria-label="알림 닫기" onClick={() => setNotice("")}><Icon name="close" size={16}/></button></div> : null}
       {page}
       <NewProductDialog open={newProductOpen} live={live} submitting={submittingProduct} onClose={() => setNewProductOpen(false)} onSubmit={(input) => void submitProduct(input)}/>
-      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)}/> : null}
+      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} coverBusy={busyCoverProductId === selectedProduct.id} workerOnline={data.worker.online} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)} onGenerateCover={(input) => void requestCover(selectedProduct.id, input)}/> : null}
     </AppShell>
   );
 }

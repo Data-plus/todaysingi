@@ -27,6 +27,7 @@ export const JOB_LABELS: Record<string, string> = {
   create_product: "로컬 관제 상품 생성",
   fetch_video: "영상 수집·가공",
   dub: "Typecast 음성 재생성",
+  generate_cover: "릴스 커버 생성",
   publish_reel: "Instagram 릴스 게시",
   add_product: "링크 허브 상품 추가",
 };
