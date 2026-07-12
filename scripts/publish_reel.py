@@ -35,13 +35,63 @@ def public_video_url(item_id, base=SITE_BASE):
     return f"{base}/media/{item_id}.mp4"
 
 
-def build_container_params(video_url, caption, token):
-    return {
+def build_container_params(video_url, caption, token, thumb_offset_ms=None):
+    params = {
         "media_type": "REELS",
         "video_url": video_url,
         "caption": caption,
         "access_token": token,
     }
+    if thumb_offset_ms is not None:
+        params["thumb_offset"] = thumb_offset_ms
+    return params
+
+
+def mean_luminance(image_path):
+    """이미지의 평균 밝기(0~255). 릴스 커버 후보 선정용."""
+    from PIL import Image
+    with Image.open(image_path) as im:
+        gray = im.convert("L").resize((32, 32))
+        pixels = list(gray.getdata())
+    return sum(pixels) / len(pixels)
+
+
+def choose_offset(luminances, timestamps_ms):
+    """가장 밝은 프레임의 타임스탬프(ms)를 고른다. 후보가 없으면 None."""
+    if not luminances:
+        return None
+    best = max(range(len(luminances)), key=lambda i: luminances[i])
+    return timestamps_ms[best]
+
+
+def pick_thumb_offset_ms(video_path, candidates=8):
+    """영상에서 커버로 쓸 가장 밝은 시점(ms)을 찾는다 (검은 커버 방지)."""
+    import subprocess
+    import tempfile
+    duration = probe_duration(video_path)
+    lums, stamps = [], []
+    with tempfile.TemporaryDirectory() as td:
+        for i in range(1, candidates + 1):
+            t = duration * i / (candidates + 1)
+            frame = Path(td) / f"c{i}.jpg"
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(video_path),
+                 "-frames:v", "1", str(frame)],
+                capture_output=True)
+            if r.returncode == 0 and frame.exists():
+                lums.append(mean_luminance(frame))
+                stamps.append(int(t * 1000))
+    return choose_offset(lums, stamps)
+
+
+def probe_duration(path):
+    import json as _json
+    import subprocess
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", str(path)],
+        capture_output=True, text=True, check=True)
+    return float(_json.loads(out.stdout)["format"]["duration"])
 
 
 def next_poll_action(status_code, waited_s, timeout_s):
@@ -139,6 +189,10 @@ def main(argv=None):
                         help="호스팅과 사전 검증까지만 하고 게시는 하지 않음")
     parser.add_argument("--skip-host", action="store_true",
                         help="이미 호스팅된 영상 URL을 재사용")
+    parser.add_argument("--thumb-offset", type=int, default=None,
+                        help="커버 프레임 시점(ms). 미지정 시 가장 밝은 프레임 자동 선택")
+    parser.add_argument("--no-thumb", action="store_true",
+                        help="커버 자동 선택 끄기(인스타 기본값 사용)")
     args = parser.parse_args(argv)
 
     env = load_env()
@@ -161,6 +215,13 @@ def main(argv=None):
     caption = caption_file.read_text(encoding="utf-8").strip()
 
     url = public_video_url(args.id) if args.skip_host else host_video(args.id, final_mp4)
+
+    thumb_ms = None
+    if not args.no_thumb:
+        thumb_ms = args.thumb_offset if args.thumb_offset is not None \
+            else pick_thumb_offset_ms(final_mp4)
+        if thumb_ms is not None:
+            print(f"커버 프레임: {thumb_ms / 1000:.1f}초 지점 (가장 밝은 프레임)")
 
     if args.dry_run:
         print(f"\n[dry-run] 게시 준비 완료 — 영상: {url}")
