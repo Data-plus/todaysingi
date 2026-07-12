@@ -55,7 +55,7 @@
       "id": 2,
       "title": "키링 미니 디지털 카메라 (Y2K 레트로)",
       "coupangUrl": "https://www.coupang.com/vp/products/9433006170?itemId=28048287458",
-      "stage": "caption_ready",
+      "stage": "linked",
       "history": [
         {
           "stage": "sourced",
@@ -76,6 +76,14 @@
         {
           "stage": "caption_ready",
           "at": "2026-07-12T13:35:33"
+        },
+        {
+          "stage": "published",
+          "at": "2026-07-12T13:44:57"
+        },
+        {
+          "stage": "linked",
+          "at": "2026-07-12T13:45:23"
         }
       ],
       "data": {
@@ -83,7 +91,11 @@
         "aliUrl": "https://ko.aliexpress.com/item/1005011961243829.html",
         "finalVideo": "ops/assets/2/final.mp4",
         "voice": "tc_69f2e455ea79fd197aa0476f",
-        "ttsEngine": "typecast"
+        "ttsEngine": "typecast",
+        "reelUrl": "https://www.instagram.com/reel/DargvZwlXAf/",
+        "igMediaId": "18077730377306780",
+        "partnersLink": "https://link.coupang.com/a/fjL6CDVKBo",
+        "siteProductId": "2"
       },
       "note": ""
     }
