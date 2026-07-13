@@ -53,7 +53,7 @@ export function getPublishButtonState({ stage, reelUrl, jobs, workerOnline, busy
       kind: "running",
       disabled: true,
       label: "게시 중",
-      hint: "Worker가 Instagram 게시 작업을 처리하고 있습니다.",
+      hint: "Cloud Worker가 Instagram 게시 작업을 처리하고 있습니다.",
     };
   }
 
@@ -61,10 +61,10 @@ export function getPublishButtonState({ stage, reelUrl, jobs, workerOnline, busy
     return {
       kind: "queued",
       disabled: true,
-      label: workerOnline ? "게시 대기" : "게시 대기 · Worker를 켜면 처리",
+      label: workerOnline ? "게시 대기" : "게시 대기 · Cloud 실행 준비",
       hint: workerOnline
-        ? "승인된 게시 작업이 Worker의 처리를 기다리고 있습니다."
-        : "승인된 작업은 대기열에 보관됩니다. PC에서 Worker를 켜면 처리됩니다.",
+        ? "승인된 게시 작업이 Cloud Worker의 처리를 기다리고 있습니다."
+        : "승인된 작업은 안전한 대기열에 보관되고 Cloud Run이 자동 실행됩니다.",
     };
   }
 
@@ -82,7 +82,7 @@ export function getPublishButtonState({ stage, reelUrl, jobs, workerOnline, busy
     disabled: false,
     label: "릴스 게시 승인",
     hint: workerOnline
-      ? "승인하면 Worker가 Instagram 게시를 시작합니다."
-      : "승인하면 대기열에 저장됩니다. PC에서 Worker를 켜면 자동 게시됩니다.",
+      ? "승인하면 Cloud Worker가 Instagram 게시를 시작합니다."
+      : "승인하면 대기열에 저장되고 Cloud Run이 자동으로 실행됩니다.",
   };
 }

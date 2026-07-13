@@ -5,6 +5,7 @@ import {
   STAGE_LABELS,
   relativeTime,
 } from "./dashboard";
+import { summarizeGa4 } from "./performance";
 import { supabase } from "./supabase";
 import type {
   AdminAsset,
@@ -12,6 +13,9 @@ import type {
   AdminProduct,
   AdminWorker,
   DeskData,
+  Ga4ProductDaily,
+  Ga4TrafficDaily,
+  IntegrationSync,
   JobStatus,
   ProductStage,
 } from "../types/admin";
@@ -23,9 +27,27 @@ function requireSupabase() {
   return supabase;
 }
 
+async function dispatchCloudWorker(reason: string): Promise<boolean> {
+  const client = requireSupabase();
+  const { error } = await client.functions.invoke("dispatch-worker", { body: { reason } });
+  if (error) {
+    console.warn("Cloud Worker dispatch failed; queued work remains safe.", error.message);
+    return false;
+  }
+  return true;
+}
+
 export async function loadDeskData(): Promise<DeskData> {
   const client = requireSupabase();
-  const [productsResult, jobsResult, workersResult, assetsResult] = await Promise.all([
+  const [
+    productsResult,
+    jobsResult,
+    workersResult,
+    assetsResult,
+    ga4ProductsResult,
+    ga4TrafficResult,
+    integrationsResult,
+  ] = await Promise.all([
     client.from("products").select("*").order("updated_at", { ascending: false }),
     client
       .from("jobs")
@@ -38,11 +60,27 @@ export async function loadDeskData(): Promise<DeskData> {
       .order("last_seen_at", { ascending: false }),
     client
       .from("assets")
-      .select("id,product_id,job_id,kind,storage_path,mime_type,bytes,duration_seconds,review_status,metadata,created_at")
+      .select("id,product_id,job_id,kind,bucket_id,storage_path,mime_type,bytes,duration_seconds,review_status,retention_class,expires_at,cleanup_status,deleted_at,metadata,created_at")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(100),
+    client
+      .from("ga4_product_daily")
+      .select("metric_date,item_id,product_id,item_name,clicks,synced_at")
+      .order("metric_date", { ascending: true })
+      .limit(5000),
+    client
+      .from("ga4_traffic_daily")
+      .select("metric_date,source,medium,sessions,active_users,synced_at")
+      .order("metric_date", { ascending: true })
+      .limit(5000),
+    client
+      .from("integration_syncs")
+      .select("integration,status,last_attempt_at,last_success_at,range_start,range_end,row_count,error_summary,updated_at")
+      .order("integration", { ascending: true }),
   ]);
-  const error = productsResult.error || jobsResult.error || workersResult.error || assetsResult.error;
+  const error = productsResult.error || jobsResult.error || workersResult.error || assetsResult.error
+    || ga4ProductsResult.error || ga4TrafficResult.error || integrationsResult.error;
   if (error) throw error;
 
   const products: AdminProduct[] = (productsResult.data || []).map((row) => {
@@ -113,23 +151,69 @@ export async function loadDeskData(): Promise<DeskData> {
     productId: Number(row.product_id),
     jobId: row.job_id || null,
     kind: row.kind,
+    bucketId: row.bucket_id || "completed-assets",
     storagePath: row.storage_path,
     mimeType: row.mime_type,
     bytes: typeof row.bytes === "number" ? row.bytes : null,
     durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
     reviewStatus: row.review_status,
+    retentionClass: row.retention_class || "review",
+    expiresAt: row.expires_at || null,
+    cleanupStatus: row.cleanup_status || "active",
+    deletedAt: row.deleted_at || null,
     metadata: row.metadata || {},
     signedUrl: null,
     createdAt: row.created_at,
   }));
+  const ga4ProductDaily: Ga4ProductDaily[] = (ga4ProductsResult.data || []).map((row) => ({
+    metricDate: row.metric_date,
+    itemId: row.item_id,
+    productId: row.product_id === null ? null : Number(row.product_id),
+    itemName: row.item_name || "",
+    clicks: Number(row.clicks || 0),
+  }));
+  const ga4TrafficDaily: Ga4TrafficDaily[] = (ga4TrafficResult.data || []).map((row) => ({
+    metricDate: row.metric_date,
+    source: row.source,
+    medium: row.medium,
+    sessions: Number(row.sessions || 0),
+    activeUsers: Number(row.active_users || 0),
+  }));
+  const integrationSyncs: IntegrationSync[] = (integrationsResult.data || []).map((row) => ({
+    integration: row.integration,
+    status: row.status,
+    lastAttemptAt: row.last_attempt_at || null,
+    lastSuccessAt: row.last_success_at || null,
+    rangeStart: row.range_start || null,
+    rangeEnd: row.range_end || null,
+    rowCount: Number(row.row_count || 0),
+    errorSummary: row.error_summary || null,
+    updatedAt: row.updated_at,
+  }));
+  const performance = summarizeGa4(ga4ProductDaily, ga4TrafficDaily);
+  const clicksByProduct = new Map<number, number>();
+  for (const row of performance.products) {
+    if (row.productId !== null) clicksByProduct.set(row.productId, row.clicks);
+  }
+  for (const product of products) {
+    product.metrics.linkClicks = clicksByProduct.get(product.id) ?? 0;
+  }
   if (assets.length) {
-    const { data: signedAssets } = await client.storage
-      .from("completed-assets")
-      .createSignedUrls(assets.map((asset) => asset.storagePath), 3600);
-    const signedByPath = new Map(
-      (signedAssets || []).filter((asset) => asset.signedUrl).map((asset) => [asset.path, asset.signedUrl]),
-    );
-    for (const asset of assets) asset.signedUrl = signedByPath.get(asset.storagePath) || null;
+    const assetsByBucket = new Map<string, AdminAsset[]>();
+    for (const asset of assets) {
+      const grouped = assetsByBucket.get(asset.bucketId) || [];
+      grouped.push(asset);
+      assetsByBucket.set(asset.bucketId, grouped);
+    }
+    await Promise.all(Array.from(assetsByBucket, async ([bucketId, bucketAssets]) => {
+      const { data: signedAssets } = await client.storage
+        .from(bucketId)
+        .createSignedUrls(bucketAssets.map((asset) => asset.storagePath), 3600);
+      const signedByPath = new Map(
+        (signedAssets || []).filter((asset) => asset.signedUrl).map((asset) => [asset.path, asset.signedUrl]),
+      );
+      for (const asset of bucketAssets) asset.signedUrl = signedByPath.get(asset.storagePath) || null;
+    }));
   }
   const latestWorker = workers[0];
 
@@ -138,6 +222,10 @@ export async function loadDeskData(): Promise<DeskData> {
     jobs,
     workers,
     assets,
+    ga4ProductDaily,
+    ga4TrafficDaily,
+    integrationSyncs,
+    performance,
     worker: {
       online: Boolean(latestWorker?.online),
       label: latestWorker?.statusLabel || "오프라인",
@@ -152,11 +240,12 @@ export async function enqueueDub(productId: number): Promise<void> {
   const client = requireSupabase();
   const { error } = await client.from("jobs").insert({
     product_id: productId,
-    type: "dub",
-    payload: { emotion: "toneup", intensity: 1, rate: "-5%" },
-    idempotency_key: `dub:${productId}:${crypto.randomUUID()}`,
+    type: "generate_voice",
+    payload: { emotion: "toneup", intensity: 1, rate: "-5%", orchestrated: false },
+    idempotency_key: `generate_voice:${productId}:${crypto.randomUUID()}`,
   });
   if (error) throw error;
+  await dispatchCloudWorker(`dub:${productId}`);
 }
 
 export async function enqueuePipelineSync(): Promise<void> {
@@ -168,6 +257,7 @@ export async function enqueuePipelineSync(): Promise<void> {
     priority: 20,
   });
   if (error) throw error;
+  await dispatchCloudWorker("sync_pipeline");
 }
 
 export async function enqueueGenerateCover(
@@ -187,6 +277,59 @@ export async function enqueueGenerateCover(
     idempotency_key: `generate_cover:${productId}:${crypto.randomUUID()}`,
   });
   if (error) throw error;
+  await dispatchCloudWorker(`cover:${productId}`);
+}
+
+export async function requestGa4Sync(days = 30): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc("request_ga4_sync", { p_days: days });
+  if (error) throw error;
+  if (typeof data !== "string" || !data) {
+    throw new Error("GA4 동기화 작업 ID를 받지 못했습니다.");
+  }
+  await dispatchCloudWorker("sync_ga4");
+  return data;
+}
+
+export async function resumePipelineJob(
+  jobId: string,
+  input: Record<string, string | number>,
+): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await client.rpc("resume_pipeline_job", {
+    p_job_id: jobId,
+    p_input: input,
+  });
+  if (error) throw error;
+  await dispatchCloudWorker(`resume:${jobId}`);
+}
+
+export async function uploadManualVideo(
+  productId: number,
+  jobId: string,
+  file: File,
+): Promise<void> {
+  if (file.type !== "video/mp4" || file.size < 1 || file.size > 500 * 1024 * 1024) {
+    throw new Error("오백 MB 이하 MP4 파일만 업로드할 수 있습니다.");
+  }
+  const client = requireSupabase();
+  const storagePath = `manual-inputs/${productId}/${crypto.randomUUID()}.mp4`;
+  const { error: uploadError } = await client.storage
+    .from("pipeline-assets")
+    .upload(storagePath, file, { contentType: "video/mp4", upsert: false });
+  if (uploadError) throw uploadError;
+  const { error: registerError } = await client.rpc("register_manual_video", {
+    p_product_id: productId,
+    p_job_id: jobId,
+    p_storage_path: storagePath,
+    p_bytes: file.size,
+    p_mime_type: "video/mp4",
+  });
+  if (registerError) {
+    await client.storage.from("pipeline-assets").remove([storagePath]);
+    throw registerError;
+  }
+  await dispatchCloudWorker(`manual_video:${productId}`);
 }
 
 export async function approvePublishReel(productId: number): Promise<string> {
@@ -206,6 +349,7 @@ export async function approvePublishReel(productId: number): Promise<string> {
   if (typeof data !== "string" || !data) {
     throw new Error("게시 승인 작업 ID를 받지 못했습니다.");
   }
+  await dispatchCloudWorker(`publish:${productId}`);
   return data;
 }
 
@@ -240,9 +384,10 @@ export async function retryJob(job: AdminJob): Promise<void> {
     idempotency_key: `retry:${job.id}:${crypto.randomUUID()}`,
   });
   if (error) throw error;
+  await dispatchCloudWorker(`retry:${job.id}`);
 }
 
-export async function createProduct(input: { title: string; coupangUrl: string; aliUrl?: string }): Promise<void> {
+export async function createProduct(input: { title?: string; coupangUrl: string; aliUrl?: string }): Promise<void> {
   const client = requireSupabase();
   const { data: latest, error: readError } = await client
     .from("products")
@@ -252,9 +397,10 @@ export async function createProduct(input: { title: string; coupangUrl: string; 
     .maybeSingle();
   if (readError) throw readError;
   const productId = Number(latest?.id || 0) + 1;
+  const title = input.title?.trim() || "상품 정보 수집 대기";
   const { error } = await client.from("products").insert({
     id: productId,
-    title: input.title.trim(),
+    title,
     coupang_url: input.coupangUrl,
     ali_url: input.aliUrl || null,
     stage: "sourced",
@@ -262,15 +408,15 @@ export async function createProduct(input: { title: string; coupangUrl: string; 
   if (error) throw error;
   const { error: jobError } = await client.from("jobs").insert({
     product_id: productId,
-    type: "create_product",
+    type: "source_product",
     payload: {
-      title: input.title.trim(),
       coupang_url: input.coupangUrl,
       ali_url: input.aliUrl || null,
-      note: "온라인 관리자에서 등록",
+      orchestrated: true,
     },
-    idempotency_key: `create_product:${productId}`,
+    idempotency_key: `pipeline:${productId}:source_product:v1`,
     priority: 10,
   });
   if (jobError) throw jobError;
+  await dispatchCloudWorker(`source_product:${productId}`);
 }

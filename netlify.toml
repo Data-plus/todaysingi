@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix admin ci && npm --prefix admin run build:netlify"
+  command = "python scripts/export_products.py && npm --prefix admin ci && npm --prefix admin run build:netlify"
   publish = "site"
 
 [[redirects]]

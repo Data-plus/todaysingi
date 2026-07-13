@@ -27,7 +27,7 @@ def test_admin_has_six_real_views_with_hash_navigation():
     assert "hashchange" in app
 
 
-def test_external_performance_metrics_are_nullable_and_have_waiting_state():
+def test_ga4_metrics_are_live_while_sales_metrics_remain_nullable():
     types = source("admin/src/types/admin.ts")
     dashboard = source("admin/src/lib/dashboard.ts")
     performance = source("admin/src/pages/PerformancePage.tsx")
@@ -44,7 +44,10 @@ def test_external_performance_metrics_are_nullable_and_have_waiting_state():
     assert '"waiting"' in types
     assert "연결 대기" in dashboard
     assert "연결 대기" in performance
-    assert "Measurement ID" in performance
+    assert "GA4 새로고침" in performance
+    assert "상품별 클릭" in performance
+    assert "유입 경로" in performance
+    assert "실제 클릭" in performance
     assert "최종 승인" in performance
 
 
@@ -91,7 +94,7 @@ def test_publish_approval_uses_confirmed_rpc_queue():
     assert "PublishApprovalDialog" in drawer
     assert "getPublishButtonState" in drawer
     assert "Instagram 게시 승인" in dialog
-    assert "Worker를 켜면 자동으로 게시" in dialog
+    assert "PC와 관계없이 Cloud Run" in dialog
     assert "approvePublishReel" in app
     assert "requestPublish" in app
     assert ".publish-approval-dialog" in styles
@@ -130,11 +133,12 @@ def test_demo_mode_disables_actions_that_need_live_supabase():
     assert "Supabase 연결 후 사용할 수 있습니다" in drawer
 
 
-def test_worker_without_recent_heartbeat_is_offline_not_unconfigured():
+def test_cloud_worker_without_a_running_execution_is_idle_not_pc_blocked():
     dashboard = source("admin/src/lib/dashboard.ts")
 
-    assert 'label: data.worker.online ? "연결됨" : "오프라인"' in dashboard
+    assert 'label: data.worker.online ? "실행 중" : "유휴"' in dashboard
     assert 'status: data.worker.online ? "connected" : "waiting"' in dashboard
+    assert "작업 요청 시 자동으로 실행" in dashboard
 
 
 def test_cover_editor_exposes_candidates_copy_and_real_generate_action():
@@ -161,6 +165,7 @@ def test_private_cover_assets_receive_signed_urls_without_public_bucket():
 
     assert "metadata: Record<string, unknown>" in types
     assert "signedUrl: string | null" in types
-    assert 'from("completed-assets")' in control_desk
+    assert "assetsByBucket" in control_desk
+    assert ".from(bucketId)" in control_desk
     assert "createSignedUrls" in control_desk
     assert "getPublicUrl" not in control_desk

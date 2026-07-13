@@ -4,6 +4,7 @@ const toneByStatus: Record<string, BadgeTone> = {
   queued: "warning",
   claimed: "info",
   running: "info",
+  waiting_input: "warning",
   succeeded: "success",
   failed: "danger",
   cancelled: "neutral",

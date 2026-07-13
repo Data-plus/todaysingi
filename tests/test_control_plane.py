@@ -206,6 +206,14 @@ class FakeClient:
         self.events.append(("sync",))
         return 1
 
+    def get_product(self, product_id):
+        self.events.append(("product", product_id))
+        return {"id": product_id, "ig_media_id": "ig-confirmed"}
+
+    def list_product_assets(self, product_id):
+        self.events.append(("assets", product_id))
+        return [{"id": "asset-final", "kind": "final_video"}]
+
 
 def test_run_claimed_sync_job_updates_progress_and_result():
     client = FakeClient()
@@ -216,6 +224,24 @@ def test_run_claimed_sync_job_updates_progress_and_result():
     assert final[2]["status"] == "succeeded"
     assert final[2]["progress"] == 100
     assert final[2]["result"] == {"synced_products": 1}
+
+
+def test_run_claimed_ga4_job_uses_data_syncer_without_a_cli_command():
+    client = FakeClient()
+    job = {"id": "job-ga4", "type": "sync_ga4", "payload": {"days": 30}}
+    calls = []
+
+    def ga4_syncer(received_client, payload):
+        calls.append((received_client, payload))
+        return {"stored_rows": 12, "range_start": "2026-06-14", "range_end": "2026-07-13"}
+
+    assert build_job_command(job, REPO) is None
+    run_claimed_job(client, job, REPO, ga4_syncer=ga4_syncer)
+
+    assert calls == [(client, {"days": 30})]
+    final = [event for event in client.events if event[0] == "update"][-1]
+    assert final[2]["status"] == "succeeded"
+    assert final[2]["result"]["stored_rows"] == 12
 
 
 def test_run_claimed_cli_job_redacts_output_and_marks_success():
@@ -232,6 +258,46 @@ def test_run_claimed_cli_job_redacts_output_and_marks_success():
     assert all("hidden" not in message for message in log_messages)
     assert ("sync",) in client.events
     assert [e for e in client.events if e[0] == "update"][-1][2]["status"] == "succeeded"
+
+
+def test_publish_cleanup_runs_only_after_success_and_confirmed_media_id():
+    client = FakeClient()
+    job = {
+        "id": "job-publish", "type": "publish_reel", "product_id": 1,
+        "payload": {}, "approved_at": "2026-07-13T09:00:00+00:00",
+    }
+    cleanups = []
+
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, "published", "")
+
+    def cleaner(received_client, assets, *, published_media_id):
+        cleanups.append((received_client, assets, published_media_id))
+        return {"deleted": 1, "pending": 0, "kept": 0}
+
+    run_claimed_job(client, job, REPO, runner=runner, asset_cleaner=cleaner)
+
+    assert cleanups == [(client, [{"id": "asset-final", "kind": "final_video"}], "ig-confirmed")]
+    final = [event for event in client.events if event[0] == "update"][-1]
+    assert final[2]["status"] == "succeeded"
+    assert final[2]["result"]["cleanup"]["deleted"] == 1
+
+
+def test_publish_failure_never_calls_success_cleanup():
+    client = FakeClient()
+    job = {
+        "id": "job-publish-fail", "type": "publish_reel", "product_id": 1,
+        "payload": {}, "approved_at": "2026-07-13T09:00:00+00:00",
+    }
+    cleanups = []
+
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 2, "", "Meta publish failed")
+
+    run_claimed_job(client, job, REPO, runner=runner, asset_cleaner=lambda *args, **kwargs: cleanups.append(True))
+
+    assert cleanups == []
+    assert [event for event in client.events if event[0] == "update"][-1][2]["status"] == "failed"
 
 
 def test_run_claimed_job_records_failure_without_raising():

@@ -102,7 +102,7 @@ def build_job_command(
     python = python_executable or sys.executable
     scripts = Path(repo_root) / "scripts"
 
-    if job_type == "sync_pipeline":
+    if job_type in {"sync_pipeline", "sync_ga4", "cleanup_assets"}:
         return None
 
     product_id = _product_id(job)
@@ -310,9 +310,60 @@ class ControlPlaneClient:
         if response.status_code >= 400:
             raise ControlPlaneError(f"Storage {response.status_code}: {redact_text(response.text)}")
 
+    def download_storage_file(self, bucket: str, storage_path: str, destination: Path):
+        encoded_path = urllib.parse.quote(storage_path, safe="/")
+        headers = {
+            "apikey": self.service_key,
+            "Authorization": f"Bearer {self.service_key}",
+        }
+        response = self.session.request(
+            "GET",
+            f"{self.base_url}/storage/v1/object/authenticated/{bucket}/{encoded_path}",
+            headers=headers,
+            timeout=120,
+        )
+        if response.status_code >= 400:
+            raise ControlPlaneError(f"Storage {response.status_code}: {redact_text(response.text)}")
+        Path(destination).write_bytes(response.content)
+
+    def delete_storage_object(self, bucket: str, storage_path: str):
+        headers = {
+            "apikey": self.service_key,
+            "Authorization": f"Bearer {self.service_key}",
+            "Content-Type": "application/json",
+        }
+        response = self.session.request(
+            "DELETE", f"{self.base_url}/storage/v1/object/{bucket}",
+            headers=headers, json={"prefixes": [storage_path]}, timeout=30,
+        )
+        if response.status_code >= 400:
+            raise ControlPlaneError(f"Storage {response.status_code}: {redact_text(response.text)}")
+
+    def upload_pipeline_asset(self, local_path: Path, row: dict[str, Any]):
+        bucket = str(row.get("bucket_id") or "")
+        if bucket != "pipeline-assets":
+            raise ControlPlaneError("Cloud 산출물은 pipeline-assets bucket에만 업로드할 수 있습니다")
+        storage_path = str(row.get("storage_path") or "")
+        self._upload_file(bucket, storage_path, Path(local_path), str(row.get("mime_type") or ""))
+        try:
+            rows = self._request(
+                "POST", "rest/v1/assets?on_conflict=storage_path",
+                json_body=row, prefer="resolution=merge-duplicates,return=representation",
+            ) or []
+        except Exception:
+            try:
+                self.delete_storage_object(bucket, storage_path)
+            except Exception:
+                pass
+            raise
+        return rows[0] if rows else row
+
     def heartbeat(self, worker_id: str, *, status: str, current_job_id: str | None = None, version="0.1.0"):
         body = {
-            "id": worker_id, "name": os.environ.get("COMPUTERNAME", worker_id),
+            "id": worker_id,
+            "name": os.environ.get("TODAYSINGI_WORKER_NAME")
+                or os.environ.get("CLOUD_RUN_JOB")
+                or os.environ.get("COMPUTERNAME", worker_id),
             "status": status, "current_job_id": current_job_id, "version": version,
             "last_seen_at": utc_now().isoformat(timespec="seconds"),
         }
@@ -352,6 +403,133 @@ class ControlPlaneClient:
             )
         return len(rows)
 
+    def list_product_ids(self) -> list[int]:
+        rows = self._request("GET", "rest/v1/products?select=id&order=id.asc") or []
+        return [int(row["id"]) for row in rows if isinstance(row, dict) and row.get("id") is not None]
+
+    def mark_integration_sync(self, integration: str, **fields):
+        if integration not in {"ga4", "coupang", "meta"}:
+            raise ControlPlaneError("지원하지 않는 외부 연동입니다")
+        body = dict(fields)
+        if body.get("status") in {"running", "failed"}:
+            body["last_attempt_at"] = utc_now().isoformat(timespec="seconds")
+        return self._request(
+            "PATCH", f"rest/v1/integration_syncs?integration=eq.{integration}",
+            json_body=body, prefer="return=minimal",
+        )
+
+    def update_product(self, product_id: int, **fields):
+        return self._request(
+            "PATCH", f"rest/v1/products?id=eq.{product_id}",
+            json_body=fields, prefer="return=minimal",
+        )
+
+    def enqueue_job_once(
+        self,
+        product_id: int,
+        job_type: str,
+        payload: dict[str, Any],
+        idempotency_key: str,
+        *,
+        priority: int = 100,
+        max_attempts: int = 3,
+    ) -> dict[str, Any] | None:
+        rows = self._request(
+            "POST", "rest/v1/jobs?on_conflict=idempotency_key",
+            json_body={
+                "product_id": product_id,
+                "type": job_type,
+                "payload": payload,
+                "idempotency_key": idempotency_key,
+                "priority": priority,
+                "max_attempts": max_attempts,
+            },
+            prefer="resolution=ignore-duplicates,return=representation",
+        ) or []
+        if rows:
+            return rows[0]
+        existing = self._request(
+            "GET",
+            "rest/v1/jobs?idempotency_key=eq."
+            f"{urllib.parse.quote(idempotency_key, safe=':')}&select=*&limit=1",
+        ) or []
+        return existing[0] if existing else None
+
+    def update_asset(self, asset_id: str, **fields):
+        return self._request(
+            "PATCH", f"rest/v1/assets?id=eq.{urllib.parse.quote(asset_id, safe='-')}",
+            json_body=fields, prefer="return=minimal",
+        )
+
+    def get_product(self, product_id: int) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET", f"rest/v1/products?id=eq.{product_id}&select=*&limit=1",
+        ) or []
+        return rows[0] if rows else None
+
+    def claim_cloud_job(self, worker_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "POST", "rest/v1/rpc/claim_next_cloud_job",
+            json_body={"p_worker_id": worker_id, "p_lock_seconds": 3600},
+        ) or []
+        return rows[0] if rows else None
+
+    def list_product_assets(self, product_id: int) -> list[dict[str, Any]]:
+        return self._request(
+            "GET",
+            f"rest/v1/assets?product_id=eq.{product_id}&deleted_at=is.null&select=*&order=created_at.asc",
+        ) or []
+
+    def get_asset(self, asset_id: str) -> dict[str, Any] | None:
+        rows = self._request(
+            "GET",
+            f"rest/v1/assets?id=eq.{urllib.parse.quote(asset_id, safe='-')}&select=*&limit=1",
+        ) or []
+        return rows[0] if rows else None
+
+    def create_signed_asset_url(self, asset: dict[str, Any], *, expires_in: int = 3600) -> str:
+        if expires_in < 60 or expires_in > 86400:
+            raise ControlPlaneError("signed URL 만료 시간은 육십 초 이상 하루 이하여야 합니다")
+        bucket = str(asset.get("bucket_id") or "")
+        storage_path = str(asset.get("storage_path") or "")
+        encoded_path = urllib.parse.quote(storage_path, safe="/")
+        result = self._request(
+            "POST", f"storage/v1/object/sign/{bucket}/{encoded_path}",
+            json_body={"expiresIn": expires_in},
+        ) or {}
+        signed = result.get("signedURL") or result.get("signedUrl")
+        if not signed:
+            raise ControlPlaneError("Storage signed URL을 발급하지 못했습니다")
+        if str(signed).startswith("http"):
+            return str(signed)
+        return f"{self.base_url}/storage/v1{signed}"
+
+    def list_expired_assets(self, *, before: dt.datetime | None = None) -> list[dict[str, Any]]:
+        cutoff = urllib.parse.quote((before or utc_now()).isoformat(timespec="seconds"), safe="")
+        return self._request(
+            "GET",
+            "rest/v1/assets?deleted_at=is.null&expires_at=not.is.null"
+            f"&expires_at=lte.{cutoff}&select=*&order=expires_at.asc",
+        ) or []
+
+    def replace_ga4_metrics(
+        self,
+        range_start: dt.date,
+        range_end: dt.date,
+        product_rows: list[dict[str, Any]],
+        traffic_rows: list[dict[str, Any]],
+    ) -> int:
+        result = self._request(
+            "POST", "rest/v1/rpc/replace_ga4_metrics",
+            json_body={
+                "p_range_start": range_start.isoformat(),
+                "p_range_end": range_end.isoformat(),
+                "p_product_rows": product_rows,
+                "p_traffic_rows": traffic_rows,
+            },
+        )
+        return int(result or 0)
+
     def sync_cover_assets(self, product_id: int, *, job_id: str | None = None) -> dict[str, Any]:
         specs = cover_asset_specs(self.repo_root, product_id, job_id=job_id)
         for spec in specs:
@@ -375,6 +553,8 @@ class ControlPlaneClient:
 def run_claimed_job(
     client, job: dict[str, Any], repo_root: Path,
     *, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    ga4_syncer: Callable[[Any, dict[str, Any]], dict[str, Any]] | None = None,
+    asset_cleaner: Callable[..., dict[str, int]] | None = None,
 ) -> None:
     """선점된 작업 하나를 실행하고 실패까지 control plane에 기록한다."""
     job_id = str(job["id"])
@@ -382,7 +562,22 @@ def run_claimed_job(
         client.update_job(job_id, status="running", progress=5, error_summary=None)
         client.log(job_id, f"작업 시작: {job.get('type')}")
         command = build_job_command(job, Path(repo_root))
-        if command is None:
+        if job.get("type") == "sync_ga4":
+            if ga4_syncer is None:
+                try:
+                    from .ga4_sync import sync_ga4 as ga4_syncer
+                except ImportError:
+                    from ga4_sync import sync_ga4 as ga4_syncer
+            payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+            result = ga4_syncer(client, payload)
+        elif job.get("type") == "cleanup_assets":
+            try:
+                from .asset_cleanup import cleanup_expired_assets
+            except ImportError:
+                from asset_cleanup import cleanup_expired_assets
+            due_assets = client.list_expired_assets()
+            result = cleanup_expired_assets(client, due_assets)
+        elif command is None:
             synced = client.sync_pipeline()
             result = {"synced_products": synced}
         else:
@@ -402,7 +597,35 @@ def run_claimed_job(
                 client.update_job(job_id, progress=80)
                 cover_result = client.sync_cover_assets(_product_id(job), job_id=job_id)
             synced = client.sync_pipeline()
-            result = {"exit_code": completed.returncode, "synced_products": synced, **cover_result}
+            cleanup_result: dict[str, Any] = {}
+            if job.get("type") == "publish_reel":
+                product_id = _product_id(job)
+                product = client.get_product(product_id)
+                media_id = str((product or {}).get("ig_media_id") or "")
+                if media_id:
+                    if asset_cleaner is None:
+                        try:
+                            from .asset_cleanup import cleanup_after_publish as asset_cleaner
+                        except ImportError:
+                            from asset_cleanup import cleanup_after_publish as asset_cleaner
+                    assets = client.list_product_assets(product_id)
+                    cleanup_result = asset_cleaner(
+                        client, assets, published_media_id=media_id,
+                    )
+                else:
+                    cleanup_result = {
+                        "deleted": 0,
+                        "pending": 0,
+                        "kept": 0,
+                        "reason": "Instagram media ID DB 확인 대기",
+                    }
+                    client.log(job_id, "게시 성공 후 media ID를 확인하지 못해 Storage 정리를 보류합니다", "warning")
+            result = {
+                "exit_code": completed.returncode,
+                "synced_products": synced,
+                **cover_result,
+                **({"cleanup": cleanup_result} if job.get("type") == "publish_reel" else {}),
+            }
         client.update_job(
             job_id, status="succeeded", progress=100, result=result,
             lock_expires_at=None, finished_at=utc_now().isoformat(timespec="seconds"),
@@ -410,6 +633,22 @@ def run_claimed_job(
         client.log(job_id, "작업 완료")
     except Exception as exc:  # Worker는 한 작업 실패로 종료하지 않는다.
         message = redact_text(str(exc)) or exc.__class__.__name__
+        product_id = job.get("product_id")
+        if (
+            isinstance(product_id, int)
+            and hasattr(client, "list_product_assets")
+            and hasattr(client, "update_asset")
+        ):
+            try:
+                try:
+                    from .asset_cleanup import mark_failed_assets_for_expiry
+                except ImportError:
+                    from asset_cleanup import mark_failed_assets_for_expiry
+                mark_failed_assets_for_expiry(
+                    client, client.list_product_assets(product_id), job_status="failed",
+                )
+            except Exception as cleanup_exc:
+                client.log(job_id, f"실패 asset 만료 설정 보류: {redact_text(str(cleanup_exc))}", "warning")
         client.log(job_id, message, "error")
         client.update_job(
             job_id, status="failed", error_summary=message, lock_expires_at=None,

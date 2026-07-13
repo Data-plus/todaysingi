@@ -13,7 +13,10 @@ import {
   enqueueGenerateCover,
   enqueuePipelineSync,
   loadDeskData,
+  requestGa4Sync,
+  resumePipelineJob,
   retryJob,
+  uploadManualVideo,
 } from "./lib/controlDesk";
 import { buildConnections, EMPTY_EXTERNAL_METRICS, JOB_LABELS, JOB_STATUS_LABELS, STAGE_LABELS } from "./lib/dashboard";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
@@ -72,6 +75,20 @@ const DEMO_DATA: DeskData = {
   }],
   workers: [],
   assets: [],
+  ga4ProductDaily: [],
+  ga4TrafficDaily: [],
+  integrationSyncs: [{
+    integration: "ga4",
+    status: "idle",
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    rangeStart: null,
+    rangeEnd: null,
+    rowCount: 0,
+    errorSummary: null,
+    updatedAt: new Date().toISOString(),
+  }],
+  performance: { totalClicks: 0, sessions: 0, activeUsers: 0, dailyTrend: [], products: [], sources: [] },
   worker: { online: false, label: "오프라인", detail: "PC를 켜면 작업을 시작합니다", version: null },
   loadedAt: new Date().toISOString(),
 };
@@ -105,11 +122,11 @@ function NewProductDialog({ open, live, submitting, onClose, onSubmit }: { open:
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
       <section className="form-dialog" role="dialog" aria-modal="true" aria-labelledby="new-product-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><p>NEW PRODUCT</p><h2 id="new-product-title">새 상품 등록</h2><span>쿠팡 상품을 먼저 등록하고 로컬 파이프라인을 시작합니다.</span></div><button type="button" className="icon-button" aria-label="새 상품 창 닫기" onClick={onClose}><Icon name="close" size={20}/></button></header>
+        <header><div><p>NEW PRODUCT</p><h2 id="new-product-title">새 상품 등록</h2><span>쿠팡 URL만 넣으면 Cloud Worker가 상품 정보부터 수집합니다.</span></div><button type="button" className="icon-button" aria-label="새 상품 창 닫기" onClick={onClose}><Icon name="close" size={20}/></button></header>
         {!live ? <p className="dialog-warning"><Icon name="alert" size={16}/>Supabase 연결 후 상품을 등록할 수 있습니다.</p> : null}
         <form onSubmit={submit}>
-          <label htmlFor="product-title">상품명</label>
-          <input id="product-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="예: 접이식 미니 가습기"/>
+          <label htmlFor="product-title">상품명 <span>선택 · 자동 수집</span></label>
+          <input id="product-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="비워 두면 쿠팡에서 자동으로 가져옵니다"/>
           <label htmlFor="coupang-url">쿠팡 상품 URL</label>
           <input id="coupang-url" required type="url" value={form.coupangUrl} onChange={(event) => setForm({ ...form, coupangUrl: event.target.value })} placeholder="https://www.coupang.com/..."/>
           <label htmlFor="ali-url">AliExpress URL <span>선택</span></label>
@@ -130,8 +147,10 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
   const [busyProductId, setBusyProductId] = useState<number | null>(null);
   const [busyCoverProductId, setBusyCoverProductId] = useState<number | null>(null);
   const [busyPublishProductId, setBusyPublishProductId] = useState<number | null>(null);
+  const [busyInputJobId, setBusyInputJobId] = useState<string | null>(null);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncingGa4, setSyncingGa4] = useState(false);
   const [submittingProduct, setSubmittingProduct] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -219,8 +238,8 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
     try {
       await approvePublishReel(productId);
       setNotice(workerIsOnline
-        ? "릴스 게시를 승인했습니다. Worker가 곧 처리합니다."
-        : "릴스 게시를 승인했습니다. PC에서 Worker를 켜면 자동 게시됩니다.");
+        ? "릴스 게시를 승인했습니다. Cloud Worker가 곧 처리합니다."
+        : "릴스 게시를 승인했습니다. Cloud 실행 대기열에 보관됩니다.");
       await refresh();
       return true;
     } catch (cause) {
@@ -260,12 +279,26 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
     }
   }
 
+  async function handleGa4Sync() {
+    if (!live) return;
+    setSyncingGa4(true);
+    try {
+      await requestGa4Sync(30);
+      setNotice("GA4 최근 삼십 일 동기화를 요청했습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "GA4 동기화 요청에 실패했습니다");
+    } finally {
+      setSyncingGa4(false);
+    }
+  }
+
   async function submitProduct(input: { title: string; coupangUrl: string; aliUrl?: string }) {
     setSubmittingProduct(true);
     try {
       await createProduct(input);
       setNewProductOpen(false);
-      setNotice("새 상품과 로컬 생성 작업을 등록했습니다.");
+      setNotice("새 상품과 Cloud 생성 작업을 등록했습니다.");
       await refresh();
       navigate("products");
     } catch (cause) {
@@ -275,12 +308,39 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
     }
   }
 
+  async function submitPipelineInput(jobId: string, input: Record<string, string | number>) {
+    setBusyInputJobId(jobId);
+    try {
+      await resumePipelineJob(jobId, input);
+      setNotice("입력을 저장하고 Cloud 작업을 다시 대기열에 추가했습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "파이프라인 입력을 저장하지 못했습니다");
+    } finally {
+      setBusyInputJobId(null);
+    }
+  }
+
+  async function submitPipelineVideo(jobId: string, file: File) {
+    if (!selectedProduct) return;
+    setBusyInputJobId(jobId);
+    try {
+      await uploadManualVideo(selectedProduct.id, jobId, file);
+      setNotice("원본 영상을 안전하게 업로드하고 Cloud 작업을 재개했습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "원본 영상을 업로드하지 못했습니다");
+    } finally {
+      setBusyInputJobId(null);
+    }
+  }
+
   if (!data) return <div className="loading-page"><span className="loading-spinner" aria-hidden="true"/><strong>운영 데이터를 불러오는 중입니다.</strong></div>;
 
   let page: React.ReactNode;
   if (view === "products") page = <ProductsPage products={data.products} search={deferredSearch} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;
   else if (view === "jobs") page = <JobsPage jobs={visibleJobs} busyJobId={busyJobId} syncing={syncing} live={live} onCancel={(job) => void handleJobAction(job, "cancel")} onRetry={(job) => void handleJobAction(job, "retry")} onSync={() => void handleSync()}/>;
-  else if (view === "performance") page = <PerformancePage products={visibleProducts} connections={connections} onOpenSettings={() => navigate("settings")}/>;
+  else if (view === "performance") page = <PerformancePage products={visibleProducts} connections={connections} performance={data.performance} sync={data.integrationSyncs.find((item) => item.integration === "ga4")} syncing={syncingGa4} live={live} onSync={() => void handleGa4Sync()} onOpenSettings={() => navigate("settings")}/>;
   else if (view === "ads") page = <AdsPage connections={connections} onOpenSettings={() => navigate("settings")}/>;
   else if (view === "settings") page = <SettingsPage connections={connections} workers={data.workers}/>;
   else page = <OverviewPage data={data} products={visibleProducts} onNavigate={navigate} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;
@@ -304,7 +364,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
       {notice ? <div className="app-message message-success" role="status"><Icon name="check" size={17}/><span>{notice}</span><button type="button" aria-label="알림 닫기" onClick={() => setNotice("")}><Icon name="close" size={16}/></button></div> : null}
       {page}
       <NewProductDialog open={newProductOpen} live={live} submitting={submittingProduct} onClose={() => setNewProductOpen(false)} onSubmit={(input) => void submitProduct(input)}/>
-      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} coverBusy={busyCoverProductId === selectedProduct.id} publishBusy={busyPublishProductId === selectedProduct.id} workerOnline={data.worker.online} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)} onGenerateCover={(input) => void requestCover(selectedProduct.id, input)} onPublish={() => requestPublish(selectedProduct.id)}/> : null}
+      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} coverBusy={busyCoverProductId === selectedProduct.id} publishBusy={busyPublishProductId === selectedProduct.id} inputBusy={Boolean(busyInputJobId && selectedJobs.some((job) => job.id === busyInputJobId))} workerOnline={data.worker.online} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)} onGenerateCover={(input) => void requestCover(selectedProduct.id, input)} onPublish={() => requestPublish(selectedProduct.id)} onSubmitPipelineInput={submitPipelineInput} onUploadPipelineVideo={submitPipelineVideo}/> : null}
     </AppShell>
   );
 }

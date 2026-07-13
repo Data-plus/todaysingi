@@ -2,3 +2,5 @@ edge-tts
 yt-dlp
 requests
 pillow
+google-auth
+playwright==1.61.0

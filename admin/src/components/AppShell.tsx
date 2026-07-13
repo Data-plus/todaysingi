@@ -15,7 +15,7 @@ const NAV_ITEMS: Array<{ id: AdminView; label: string; icon: Parameters<typeof I
 const VIEW_COPY: Record<AdminView, { title: string; description: string }> = {
   overview: { title: "운영 개요", description: "오늘 확인해야 할 상품, 작업, 연결 상태입니다." },
   products: { title: "상품 관리", description: "콘텐츠 단계와 상품별 성과를 함께 관리합니다." },
-  jobs: { title: "작업 큐", description: "로컬 Worker에 전달된 자동화 작업을 추적합니다." },
+  jobs: { title: "작업 큐", description: "Cloud Worker에 전달된 자동화 작업을 추적합니다." },
   performance: { title: "성과 분석", description: "클릭부터 주문·수수료까지 데이터 연결을 관리합니다." },
   ads: { title: "광고", description: "A/B 광고안과 비용 대비 성과를 관리할 공간입니다." },
   settings: { title: "연동·설정", description: "외부 서비스와 Worker의 연결 상태를 확인합니다." },

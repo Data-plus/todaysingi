@@ -33,8 +33,8 @@ export function OverviewPage({
     <div className="page-stack">
       <section className="metrics-grid operations-metrics" aria-label="운영 현황">
         <MetricCard label="활성 상품" value={String(summary.activeProducts)} detail={`게시 완료 ${summary.publishedProducts}개`}/>
-        <MetricCard label="대기 작업" value={String(summary.queuedJobs)} detail="Worker가 켜지면 처리" tone={summary.queuedJobs ? "warning" : "default"}/>
-        <MetricCard label="실행 중" value={String(summary.runningJobs)} detail={data.worker.online ? data.worker.label : "Worker 오프라인"} tone={summary.runningJobs ? "success" : "default"}/>
+        <MetricCard label="대기 작업" value={String(summary.queuedJobs)} detail="Cloud 실행 대기열" tone={summary.queuedJobs ? "warning" : "default"}/>
+        <MetricCard label="실행 중" value={String(summary.runningJobs)} detail={data.worker.online ? data.worker.label : "Cloud Worker 유휴"} tone={summary.runningJobs ? "success" : "default"}/>
         <MetricCard label="실패 작업" value={String(summary.failedJobs)} detail={summary.failedJobs ? "확인이 필요합니다" : "현재 오류 없음"} tone={summary.failedJobs ? "danger" : "success"}/>
       </section>
 
@@ -44,7 +44,7 @@ export function OverviewPage({
           <button type="button" className="text-button" onClick={() => onNavigate("performance")}>연동 상태 보기 <Icon name="arrow" size={16}/></button>
         </div>
         <div className="metrics-grid performance-metrics">
-          <MetricCard label="링크 클릭" value={null} detail="GA4 Data API 필요"/>
+          <MetricCard label="링크 클릭" value={formatNumber(data.performance.totalClicks)} detail="GA4 최근 삼십 일" tone={data.performance.totalClicks ? "success" : "default"}/>
           <MetricCard label="쿠팡 주문" value={null} detail="파트너스 최종 승인 필요"/>
           <MetricCard label="매출" value={null} detail="쿠팡 Reporting API 필요"/>
           <MetricCard label="수수료" value={null} detail="쿠팡 Reporting API 필요"/>
@@ -53,11 +53,10 @@ export function OverviewPage({
         </div>
       </section>
 
-      {attentionItems.length || !data.worker.online ? (
+      {attentionItems.length ? (
         <section className="attention-panel" aria-labelledby="attention-title">
           <div className="attention-heading"><Icon name="alert" size={20}/><div><h2 id="attention-title">확인이 필요한 항목</h2><p>운영이 멈추기 전에 처리하세요.</p></div></div>
           <div className="attention-list">
-            {!data.worker.online ? <button type="button" onClick={() => onNavigate("settings")}><span>로컬 Worker</span><strong>현재 오프라인</strong><Icon name="chevron" size={17}/></button> : null}
             {attentionItems.slice(0, 4).map(({ product, reason }) => <button type="button" key={product.id} onClick={() => onSelectProduct(product)}><span>상품 {String(product.id).padStart(3, "0")}</span><strong>{reason}</strong><Icon name="chevron" size={17}/></button>)}
           </div>
         </section>
@@ -76,7 +75,7 @@ export function OverviewPage({
                 <tr key={product.id}>
                   <td data-label="상품"><button type="button" className="table-product" onClick={() => onSelectProduct(product)}><span>{String(product.id).padStart(3, "0")}</span><strong>{product.title}</strong></button></td>
                   <td data-label="단계"><StatusBadge status={product.stage} label={product.stageLabel}/></td>
-                  <td data-label="클릭" className="pending-cell" title="GA4 연결 대기">{formatNumber(product.metrics.linkClicks)}</td>
+                  <td data-label="클릭">{formatNumber(product.metrics.linkClicks)}</td>
                   <td data-label="주문" className="pending-cell" title="쿠팡 API 연결 대기">{formatNumber(product.metrics.orders)}</td>
                   <td data-label="전환율" className="pending-cell">{formatPercent(conversionRate(product.metrics))}</td>
                   <td data-label="매출" className="pending-cell">{formatCurrency(product.metrics.revenue)}</td>

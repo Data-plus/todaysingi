@@ -11,8 +11,9 @@ export type ProductStage =
   | "ads_running"
   | "analyzed";
 
-export type JobStatus = "queued" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type JobStatus = "queued" | "claimed" | "running" | "waiting_input" | "succeeded" | "failed" | "cancelled";
 export type ConnectionStatus = "connected" | "waiting" | "stale" | "error";
+export type IntegrationSyncStatus = "idle" | "queued" | "running" | "succeeded" | "failed";
 
 export type ExternalMetrics = {
   linkClicks: number | null;
@@ -82,11 +83,16 @@ export type AdminAsset = {
   productId: number;
   jobId: string | null;
   kind: string;
+  bucketId: string;
   storagePath: string;
   mimeType: string;
   bytes: number | null;
   durationSeconds: number | null;
   reviewStatus: string;
+  retentionClass: string;
+  expiresAt: string | null;
+  cleanupStatus: string;
+  deletedAt: string | null;
   metadata: Record<string, unknown>;
   signedUrl: string | null;
   createdAt: string;
@@ -99,11 +105,58 @@ export type WorkerSignal = {
   version: string | null;
 };
 
+export type Ga4ProductDaily = {
+  metricDate: string;
+  itemId: string;
+  productId: number | null;
+  itemName: string;
+  clicks: number;
+};
+
+export type Ga4TrafficDaily = {
+  metricDate: string;
+  source: string;
+  medium: string;
+  sessions: number;
+  activeUsers: number;
+};
+
+export type IntegrationSync = {
+  integration: "ga4" | "coupang" | "meta";
+  status: IntegrationSyncStatus;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  rangeStart: string | null;
+  rangeEnd: string | null;
+  rowCount: number;
+  errorSummary: string | null;
+  updatedAt: string;
+};
+
+export type PerformanceSummary = {
+  totalClicks: number;
+  sessions: number;
+  activeUsers: number;
+  dailyTrend: Array<{ date: string; clicks: number; sessions: number; activeUsers: number }>;
+  products: Array<{
+    productId: number | null;
+    itemId: string;
+    itemName: string;
+    clicks: number;
+    share: number;
+  }>;
+  sources: Array<{ source: string; medium: string; sessions: number; activeUsers: number; share: number }>;
+};
+
 export type DeskData = {
   products: AdminProduct[];
   jobs: AdminJob[];
   workers: AdminWorker[];
   assets: AdminAsset[];
+  ga4ProductDaily: Ga4ProductDaily[];
+  ga4TrafficDaily: Ga4TrafficDaily[];
+  integrationSyncs: IntegrationSync[];
+  performance: PerformanceSummary;
   worker: WorkerSignal;
   loadedAt: string;
 };

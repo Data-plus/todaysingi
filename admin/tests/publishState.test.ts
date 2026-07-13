@@ -13,7 +13,7 @@ function state(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test("caption-ready product can be approved while Worker is offline", () => {
+test("caption-ready product can be approved before Cloud Worker starts", () => {
   const result = state();
 
   assert.equal(result.kind, "ready");
@@ -22,14 +22,15 @@ test("caption-ready product can be approved while Worker is offline", () => {
   assert.match(result.hint, /대기열/);
 });
 
-test("queued publish waits for an offline Worker", () => {
+test("queued publish waits for Cloud Run dispatch", () => {
   const result = state({
     jobs: [{ type: "publish_reel", status: "queued" }],
   });
 
   assert.equal(result.kind, "queued");
   assert.equal(result.disabled, true);
-  assert.equal(result.label, "게시 대기 · Worker를 켜면 처리");
+  assert.equal(result.label, "게시 대기 · Cloud 실행 준비");
+  assert.match(result.hint, /Cloud Run/);
 });
 
 test("claimed and running publish jobs show publishing state", () => {

@@ -23,14 +23,12 @@ function metadataNumber(asset: AdminAsset | undefined, key: string): number {
 export function CoverEditor({
   productId,
   assets,
-  workerOnline,
   live,
   busy,
   onGenerate,
 }: {
   productId: number;
   assets: AdminAsset[];
-  workerOnline: boolean;
   live: boolean;
   busy: boolean;
   onGenerate: (input: CoverGenerateInput) => void;
@@ -55,13 +53,11 @@ export function CoverEditor({
   }, [productId, finalCover?.id, initialFrame, initialLine1, initialLine2]);
 
   const selectedCandidate = candidates.find((asset) => frameNumber(asset) === selectedFrame) || recommended || candidates[0];
-  const canGenerate = live && workerOnline && !busy;
+  const canGenerate = live && !busy;
   const editReady = candidates.length > 0 && Boolean(line1.trim() && line2.trim());
   const disabledReason = !live
     ? "Supabase 연결 후 사용할 수 있습니다"
-    : !workerOnline
-      ? "로컬 Worker를 먼저 실행하세요"
-      : busy
+    : busy
         ? "커버 생성 작업을 요청하는 중입니다"
         : "";
 
@@ -76,7 +72,7 @@ export function CoverEditor({
         <div className="cover-empty">
           <span><Icon name="box" size={21}/></span>
           <strong>아직 커버 후보가 없습니다.</strong>
-          <p>Worker가 여섯 프레임을 분석하고 첫 두 문장으로 기본 커버를 만듭니다.</p>
+          <p>Cloud Worker가 여섯 프레임을 분석하고 첫 두 문장으로 기본 커버를 만듭니다.</p>
           <button type="button" className="secondary-button" onClick={() => onGenerate({})} disabled={!canGenerate} title={disabledReason || "자동 추천으로 커버 생성"}>
             <Icon name="plus" size={16}/>{busy ? "요청 중…" : "자동 커버 생성"}
           </button>
