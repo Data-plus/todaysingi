@@ -68,13 +68,33 @@ def test_control_desk_loads_details_and_exposes_safe_queue_actions():
 
 def test_product_drawer_is_accessible_and_has_no_fake_external_numbers():
     drawer = source("admin/src/components/ProductDrawer.tsx")
+    publish_state = source("admin/src/lib/publishState.ts")
 
     assert 'role="dialog"' in drawer
     assert 'aria-modal="true"' in drawer
     assert "aria-label" in drawer
     assert "관련 작업" in drawer
     assert "파트너스 링크" in drawer
-    assert "연결 후 사용" in drawer
+    assert "릴스 게시 승인" in publish_state
+    assert "<span>연결 후 사용</span>" not in drawer
+
+
+def test_publish_approval_uses_confirmed_rpc_queue():
+    control_desk = source("admin/src/lib/controlDesk.ts")
+    drawer = source("admin/src/components/ProductDrawer.tsx")
+    dialog = source("admin/src/components/PublishApprovalDialog.tsx")
+    app = source("admin/src/App.tsx")
+    styles = source("admin/src/styles.css")
+
+    assert "function approvePublishReel" in control_desk
+    assert '.rpc("approve_publish_reel"' in control_desk
+    assert "PublishApprovalDialog" in drawer
+    assert "getPublishButtonState" in drawer
+    assert "Instagram 게시 승인" in dialog
+    assert "Worker를 켜면 자동으로 게시" in dialog
+    assert "approvePublishReel" in app
+    assert "requestPublish" in app
+    assert ".publish-approval-dialog" in styles
 
 
 def test_legacy_editorial_hero_and_dead_review_action_are_removed():

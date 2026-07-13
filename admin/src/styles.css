@@ -375,6 +375,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,su
 .cover-editor-actions .primary-button { min-height:36px; flex:0 0 auto; }
 .drawer-footer { min-height:68px; display:flex; justify-content:flex-end; gap:8px; padding:13px 20px; border-top:1px solid var(--line); background:var(--surface); }
 .drawer-footer .primary-button span { margin-left:2px; font-size:8px; opacity:.8; }
+.publish-action-button { min-width:166px; }
+.publish-action-published:disabled { border-color:#b9dfcd; background:var(--green-soft); color:var(--green); opacity:1; box-shadow:none; }
+.publish-action-queued:disabled,.publish-action-running:disabled { border-color:#efd397; background:var(--amber-soft); color:var(--amber); opacity:1; box-shadow:none; }
+.publish-action-blocked:disabled { border-color:var(--line); background:var(--surface-strong); color:var(--muted); opacity:1; box-shadow:none; }
 
 .dialog-backdrop { display:grid; place-items:center; padding:18px; }
 .form-dialog { width:min(540px,100%); padding:21px; border:1px solid var(--line); border-radius:13px; background:var(--surface); box-shadow:var(--shadow-md); animation:dialog-in .2s ease both; }
@@ -389,6 +393,36 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,su
 .form-dialog input::placeholder { color:#9aa4b1; }
 .form-dialog form footer { display:flex; justify-content:flex-end; gap:8px; margin-top:21px; }
 .dialog-warning { display:flex; align-items:center; gap:7px; margin:14px 0 0; padding:9px; border-radius:7px; background:var(--amber-soft); color:var(--amber); font-size:9px; }
+.publish-approval-backdrop { z-index:80; }
+.publish-approval-dialog { width:min(600px,100%); max-height:calc(100vh - 36px); overflow:auto; border:1px solid var(--line); border-radius:15px; background:var(--surface); box-shadow:0 30px 80px rgba(15,23,42,.28); animation:dialog-in .2s ease both; }
+.publish-approval-dialog>header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:20px 22px 17px; border-bottom:1px solid var(--line); }
+.publish-approval-dialog>header p { margin:0 0 5px; color:var(--accent-dark); font-size:8px; font-weight:800; letter-spacing:.14em; }
+.publish-approval-dialog>header h2 { margin:0; color:var(--ink); font-size:21px; letter-spacing:-.045em; }
+.publish-approval-dialog>header span { display:block; margin-top:6px; color:var(--muted); font-size:10px; line-height:1.5; }
+.publish-approval-product { display:grid; grid-template-columns:132px minmax(0,1fr); gap:18px; padding:20px 22px; border-bottom:1px solid var(--line); background:linear-gradient(135deg,var(--surface-subtle),white); }
+.publish-cover-review { position:relative; aspect-ratio:9/16; display:grid; place-items:center; overflow:hidden; border:1px solid var(--line); border-radius:10px; background:#1d2734; color:var(--subtle); box-shadow:0 8px 24px rgba(15,23,42,.14); }
+.publish-cover-review img { width:100%; height:100%; object-fit:cover; }
+.publish-cover-review small { position:absolute; right:7px; bottom:7px; padding:4px 6px; border-radius:5px; background:rgba(15,23,42,.78); color:white; font-size:7px; font-weight:750; }
+.publish-product-copy { align-self:center; min-width:0; }
+.publish-product-copy>p { margin:0 0 7px; color:var(--accent-dark); font-size:8px; font-weight:750; letter-spacing:.1em; }
+.publish-product-copy h3 { margin:0 0 12px; color:var(--ink); font-size:19px; line-height:1.3; letter-spacing:-.04em; }
+.publish-product-copy dl { display:grid; gap:8px; margin:17px 0 0; }
+.publish-product-copy dl>div { display:grid; grid-template-columns:86px minmax(0,1fr); gap:10px; padding-top:8px; border-top:1px solid var(--line); font-size:9px; }
+.publish-product-copy dt { color:var(--muted); }
+.publish-product-copy dd { margin:0; color:var(--text); font-weight:650; }
+.publish-product-copy dd.worker-ready { color:var(--green); }
+.publish-product-copy dd.worker-waiting { color:var(--amber); }
+.publish-approval-checks { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:18px 22px 0; }
+.publish-approval-checks article { min-width:0; display:flex; align-items:flex-start; gap:8px; padding:11px; border:1px solid var(--line); border-radius:9px; background:var(--surface-subtle); }
+.publish-approval-checks article>span { width:27px; height:27px; display:grid; place-items:center; flex:0 0 auto; border-radius:7px; background:white; color:var(--green); box-shadow:var(--shadow-sm); }
+.publish-approval-checks strong { color:var(--text); font-size:9px; }
+.publish-approval-checks p { margin:4px 0 0; color:var(--muted); font-size:8px; line-height:1.45; }
+.publish-approval-warning { display:flex; align-items:flex-start; gap:10px; margin:14px 22px 0; padding:12px 13px; border:1px solid #f0cf8f; border-radius:9px; background:var(--amber-soft); color:var(--amber); }
+.publish-approval-warning>svg { flex:0 0 auto; margin-top:1px; }
+.publish-approval-warning strong { color:#744500; font-size:9px; }
+.publish-approval-warning p { margin:4px 0 0; color:#79541e; font-size:8px; line-height:1.55; }
+.publish-approval-dialog>footer { display:flex; justify-content:flex-end; gap:8px; padding:18px 22px 20px; }
+.publish-confirm-button { min-width:174px; }
 
 .loading-page { min-height:100vh; display:grid; place-items:center; align-content:center; gap:12px; padding:30px; background:var(--bg); color:var(--muted); }
 .loading-page strong { font-size:11px; }
@@ -547,6 +581,14 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,su
   .drawer-footer .primary-button span { display:none; }
   .dialog-backdrop { padding:10px; }
   .form-dialog { padding:17px; }
+  .publish-approval-dialog { max-height:calc(100vh - 20px); }
+  .publish-approval-dialog>header { padding:17px; }
+  .publish-approval-product { grid-template-columns:96px minmax(0,1fr); gap:13px; padding:16px 17px; }
+  .publish-product-copy h3 { font-size:16px; }
+  .publish-approval-checks { grid-template-columns:1fr; padding:15px 17px 0; }
+  .publish-approval-warning { margin:12px 17px 0; }
+  .publish-approval-dialog>footer { padding:15px 17px 17px; }
+  .publish-approval-dialog>footer button { flex:1; min-width:0; }
   .login-page { padding:14px; }
   .login-editorial { padding:27px 21px; }
   .login-editorial h1 { font-size:27px; }

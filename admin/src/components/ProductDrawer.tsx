@@ -1,31 +1,45 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "./Icon";
 import { StatusBadge } from "./StatusBadge";
 import { conversionRate, formatCurrency, formatDateTime, formatNumber, formatPercent } from "../lib/dashboard";
 import type { AdminAsset, AdminJob, AdminProduct } from "../types/admin";
 import { CoverEditor, type CoverGenerateInput } from "./CoverEditor";
+import { PublishApprovalDialog } from "./PublishApprovalDialog";
+import { getPublishButtonState } from "../lib/publishState";
 
 function ExternalLink({ href, label }: { href: string | null; label: string }) {
   return href ? <a href={href} target="_blank" rel="noreferrer">{label}<Icon name="external" size={14}/></a> : <span className="missing-link">{label} 미등록</span>;
 }
 
-export function ProductDrawer({ product, jobs, assets, busy, coverBusy, workerOnline, live, onClose, onDub, onGenerateCover }: { product: AdminProduct; jobs: AdminJob[]; assets: AdminAsset[]; busy: boolean; coverBusy: boolean; workerOnline: boolean; live: boolean; onClose: () => void; onDub: () => void; onGenerateCover: (input: CoverGenerateInput) => void }) {
+export function ProductDrawer({ product, jobs, assets, busy, coverBusy, publishBusy, workerOnline, live, onClose, onDub, onGenerateCover, onPublish }: { product: AdminProduct; jobs: AdminJob[]; assets: AdminAsset[]; busy: boolean; coverBusy: boolean; publishBusy: boolean; workerOnline: boolean; live: boolean; onClose: () => void; onDub: () => void; onGenerateCover: (input: CoverGenerateInput) => void; onPublish: () => Promise<boolean> }) {
+  const [publishOpen, setPublishOpen] = useState(false);
+  const publishState = getPublishButtonState({
+    stage: product.stage,
+    reelUrl: product.reelUrl,
+    jobs,
+    workerOnline,
+    busy: publishBusy,
+  });
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !publishOpen) onClose();
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [onClose]);
+  }, [onClose, publishOpen]);
+
+  useEffect(() => setPublishOpen(false), [product.id]);
 
   return (
-    <div className="drawer-backdrop" onMouseDown={onClose}>
-      <section className="product-drawer" role="dialog" aria-modal="true" aria-labelledby="product-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
+    <>
+      <div className="drawer-backdrop" onMouseDown={onClose}>
+        <section className="product-drawer" role="dialog" aria-modal="true" aria-labelledby="product-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="drawer-header"><div><p>PRODUCT · {String(product.id).padStart(3, "0")}</p><h2 id="product-drawer-title">{product.title}</h2></div><button type="button" className="icon-button" aria-label="상품 상세 닫기" onClick={onClose}><Icon name="close" size={20}/></button></header>
         <div className="drawer-scroll">
           <section className="drawer-summary">
@@ -45,8 +59,10 @@ export function ProductDrawer({ product, jobs, assets, busy, coverBusy, workerOn
 
           {product.note ? <section className="drawer-section"><div className="drawer-section-title"><h3>운영 메모</h3></div><p className="product-note">{product.note}</p></section> : null}
         </div>
-        <footer className="drawer-footer"><button type="button" className="secondary-button" onClick={onDub} disabled={busy || !live} title={live ? "Typecast 재더빙 작업 요청" : "Supabase 연결 후 사용할 수 있습니다"}><Icon name="rotate" size={16}/>{busy ? "요청 중…" : "Typecast 재더빙"}</button><button type="button" className="primary-button" disabled title="완성 자산 검수와 게시 승인 연결 후 사용할 수 있습니다"><Icon name="send" size={16}/>릴스 게시 <span>연결 후 사용</span></button></footer>
-      </section>
-    </div>
+          <footer className="drawer-footer"><button type="button" className="secondary-button" onClick={onDub} disabled={busy || !live} title={live ? "Typecast 재더빙 작업 요청" : "Supabase 연결 후 사용할 수 있습니다"}><Icon name="rotate" size={16}/>{busy ? "요청 중…" : "Typecast 재더빙"}</button><button type="button" className={`primary-button publish-action-button publish-action-${publishState.kind}`} disabled={!live || publishState.disabled} title={live ? publishState.hint : "Supabase 연결 후 사용할 수 있습니다"} aria-label={publishState.label} onClick={() => setPublishOpen(true)}><Icon name={publishState.kind === "published" ? "check" : "send"} size={16}/>{publishState.label}</button></footer>
+        </section>
+      </div>
+      <PublishApprovalDialog open={publishOpen} product={product} assets={assets} workerOnline={workerOnline} busy={publishBusy} onClose={() => setPublishOpen(false)} onConfirm={onPublish}/>
+    </>
   );
 }
