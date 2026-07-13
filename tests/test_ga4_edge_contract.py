@@ -29,6 +29,13 @@ def test_edge_function_has_admin_and_cron_auth_boundaries():
     assert "auth.getuser" in source.lower()
 
 
+def test_edge_function_cors_accepts_the_supabase_browser_client_header():
+    source = INDEX.read_text(encoding="utf-8").lower()
+
+    assert "access-control-allow-headers" in source
+    assert "x-client-info" in source
+
+
 def test_edge_function_uses_one_atomic_replace_rpc():
     source = INDEX.read_text(encoding="utf-8")
 

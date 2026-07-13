@@ -50,7 +50,7 @@ function corsHeaders(request: Request): Record<string, string> {
   if (!allowedOrigins().has(origin)) throw new HttpError(403, "허용되지 않은 요청 출처입니다");
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Content-Type": "application/json",
