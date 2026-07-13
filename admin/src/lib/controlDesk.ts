@@ -29,7 +29,7 @@ export async function loadDeskData(): Promise<DeskData> {
     client.from("products").select("*").order("updated_at", { ascending: false }),
     client
       .from("jobs")
-      .select("id,type,status,product_id,payload,result,priority,progress,attempts,max_attempts,claimed_by,error_summary,created_at,updated_at")
+      .select("id,type,status,product_id,payload,result,priority,progress,attempts,max_attempts,claimed_by,error_summary,approved_at,approved_by,created_at,updated_at")
       .order("created_at", { ascending: false })
       .limit(100),
     client
@@ -88,6 +88,8 @@ export async function loadDeskData(): Promise<DeskData> {
       maxAttempts: Number(row.max_attempts || 3),
       claimedBy: row.claimed_by || null,
       errorSummary: row.error_summary || null,
+      approvedAt: row.approved_at || null,
+      approvedBy: row.approved_by || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -185,6 +187,26 @@ export async function enqueueGenerateCover(
     idempotency_key: `generate_cover:${productId}:${crypto.randomUUID()}`,
   });
   if (error) throw error;
+}
+
+export async function approvePublishReel(productId: number): Promise<string> {
+  const client = requireSupabase();
+  const { data, error } = await client.rpc("approve_publish_reel", {
+    p_product_id: productId,
+  });
+  if (error) {
+    if (error.code === "22023") {
+      throw new Error("캡션이 완성되고 아직 게시되지 않은 상품만 승인할 수 있습니다.");
+    }
+    if (error.code === "42501") {
+      throw new Error("Instagram 게시 승인 권한이 없습니다.");
+    }
+    throw error;
+  }
+  if (typeof data !== "string" || !data) {
+    throw new Error("게시 승인 작업 ID를 받지 못했습니다.");
+  }
+  return data;
 }
 
 export async function cancelJob(job: AdminJob): Promise<void> {

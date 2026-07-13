@@ -60,6 +60,8 @@ export type AdminJob = {
   maxAttempts: number;
   claimedBy: string | null;
   errorSummary: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
   createdAt: string;
   updatedAt: string;
 };

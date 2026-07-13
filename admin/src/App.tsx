@@ -6,6 +6,7 @@ import { Login } from "./components/Login";
 import { ProductDrawer } from "./components/ProductDrawer";
 import { isAuthorizedAdminSession } from "./lib/auth";
 import {
+  approvePublishReel,
   cancelJob,
   createProduct,
   enqueueDub,
@@ -64,6 +65,8 @@ const DEMO_DATA: DeskData = {
     maxAttempts: 3,
     claimedBy: null,
     errorSummary: null,
+    approvedAt: null,
+    approvedBy: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }],
@@ -126,6 +129,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [busyProductId, setBusyProductId] = useState<number | null>(null);
   const [busyCoverProductId, setBusyCoverProductId] = useState<number | null>(null);
+  const [busyPublishProductId, setBusyPublishProductId] = useState<number | null>(null);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [submittingProduct, setSubmittingProduct] = useState(false);
@@ -208,6 +212,25 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
     }
   }
 
+  async function requestPublish(productId: number): Promise<boolean> {
+    if (!live) return false;
+    const workerIsOnline = Boolean(data?.worker.online);
+    setBusyPublishProductId(productId);
+    try {
+      await approvePublishReel(productId);
+      setNotice(workerIsOnline
+        ? "릴스 게시를 승인했습니다. Worker가 곧 처리합니다."
+        : "릴스 게시를 승인했습니다. PC에서 Worker를 켜면 자동 게시됩니다.");
+      await refresh();
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "릴스 게시 승인에 실패했습니다");
+      return false;
+    } finally {
+      setBusyPublishProductId(null);
+    }
+  }
+
   async function handleJobAction(job: AdminJob, action: "cancel" | "retry") {
     if (!live) return;
     setBusyJobId(job.id);
@@ -281,7 +304,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
       {notice ? <div className="app-message message-success" role="status"><Icon name="check" size={17}/><span>{notice}</span><button type="button" aria-label="알림 닫기" onClick={() => setNotice("")}><Icon name="close" size={16}/></button></div> : null}
       {page}
       <NewProductDialog open={newProductOpen} live={live} submitting={submittingProduct} onClose={() => setNewProductOpen(false)} onSubmit={(input) => void submitProduct(input)}/>
-      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} coverBusy={busyCoverProductId === selectedProduct.id} workerOnline={data.worker.online} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)} onGenerateCover={(input) => void requestCover(selectedProduct.id, input)}/> : null}
+      {selectedProduct ? <ProductDrawer product={selectedProduct} jobs={selectedJobs} assets={selectedAssets} busy={busyProductId === selectedProduct.id} coverBusy={busyCoverProductId === selectedProduct.id} publishBusy={busyPublishProductId === selectedProduct.id} workerOnline={data.worker.online} live={live} onClose={() => setSelectedProductId(null)} onDub={() => void requestDub(selectedProduct.id)} onGenerateCover={(input) => void requestCover(selectedProduct.id, input)} onPublish={() => requestPublish(selectedProduct.id)}/> : null}
     </AppShell>
   );
 }
