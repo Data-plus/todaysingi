@@ -1,5 +1,8 @@
 # PLAYBOOK — 상품 1개 처리 표준 절차
 
+> 온라인 관리자·Cloud Run 표준 운영은 docs/CLOUD_RUN_RUNBOOK.md를 따른다.
+> 아래 절차는 로컬 비상 폴백과 개별 디버깅용이다.
+
 쿠팡 링크 하나 → 더빙·자막 릴스 영상 + 캡션 + 사이트 게시까지의 반자동 절차.
 담당: 사람 / Claude 세션 / 스크립트. 모든 진행 상태는 관제탑이 기록한다
 (`python scripts/pipeline.py status` 로 언제든 확인, `dashboard`로 보드 열기).

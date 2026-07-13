@@ -1,0 +1,91 @@
+name: Deploy Cloud Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "worker/**"
+      - "scripts/**"
+      - "dispatcher/**"
+      - ".github/workflows/deploy-cloud-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloud-production
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'asia-northeast3' }}
+  ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY || 'todaysingi' }}
+  WORKER_JOB: ${{ vars.CLOUD_RUN_WORKER_JOB || 'todaysingi-worker' }}
+  DISPATCHER_SERVICE: ${{ vars.CLOUD_RUN_DISPATCHER_SERVICE || 'todaysingi-dispatcher' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Validate deployment variables
+        shell: bash
+        run: |
+          test -n "$GCP_PROJECT"
+          test -n "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+          test -n "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}"
+
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Configure Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push immutable images
+        shell: bash
+        run: |
+          WORKER_IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${ARTIFACT_REPOSITORY}/todaysingi-worker:${GITHUB_SHA}"
+          DISPATCHER_IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${ARTIFACT_REPOSITORY}/todaysingi-dispatcher:${GITHUB_SHA}"
+          docker build --tag "$WORKER_IMAGE" .
+          docker build --tag "$DISPATCHER_IMAGE" dispatcher
+          docker push "$WORKER_IMAGE"
+          docker push "$DISPATCHER_IMAGE"
+          echo "WORKER_IMAGE=$WORKER_IMAGE" >> "$GITHUB_ENV"
+          echo "DISPATCHER_IMAGE=$DISPATCHER_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Update Cloud Run Job image
+        run: >-
+          gcloud run jobs update "$WORKER_JOB"
+          --image "$WORKER_IMAGE"
+          --project "$GCP_PROJECT"
+          --region "$GCP_REGION"
+          --quiet
+
+      - name: Update dispatcher image
+        run: >-
+          gcloud run deploy "$DISPATCHER_SERVICE"
+          --image "$DISPATCHER_IMAGE"
+          --project "$GCP_PROJECT"
+          --region "$GCP_REGION"
+          --allow-unauthenticated
+          --quiet
+
+      - name: Dispatcher smoke check
+        shell: bash
+        run: |
+          URL="$(gcloud run services describe "$DISPATCHER_SERVICE" --project "$GCP_PROJECT" --region "$GCP_REGION" --format='value(status.url)')"
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$URL/healthz"
