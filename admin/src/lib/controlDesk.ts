@@ -5,6 +5,7 @@ import {
   STAGE_LABELS,
   relativeTime,
 } from "./dashboard";
+import { summarizeGa4 } from "./performance";
 import { supabase } from "./supabase";
 import type {
   AdminAsset,
@@ -12,6 +13,9 @@ import type {
   AdminProduct,
   AdminWorker,
   DeskData,
+  Ga4ProductDaily,
+  Ga4TrafficDaily,
+  IntegrationSync,
   JobStatus,
   ProductStage,
 } from "../types/admin";
@@ -25,7 +29,15 @@ function requireSupabase() {
 
 export async function loadDeskData(): Promise<DeskData> {
   const client = requireSupabase();
-  const [productsResult, jobsResult, workersResult, assetsResult] = await Promise.all([
+  const [
+    productsResult,
+    jobsResult,
+    workersResult,
+    assetsResult,
+    ga4ProductsResult,
+    ga4TrafficResult,
+    integrationsResult,
+  ] = await Promise.all([
     client.from("products").select("*").order("updated_at", { ascending: false }),
     client
       .from("jobs")
@@ -41,8 +53,23 @@ export async function loadDeskData(): Promise<DeskData> {
       .select("id,product_id,job_id,kind,storage_path,mime_type,bytes,duration_seconds,review_status,metadata,created_at")
       .order("created_at", { ascending: false })
       .limit(100),
+    client
+      .from("ga4_product_daily")
+      .select("metric_date,item_id,product_id,item_name,clicks,synced_at")
+      .order("metric_date", { ascending: true })
+      .limit(5000),
+    client
+      .from("ga4_traffic_daily")
+      .select("metric_date,source,medium,sessions,active_users,synced_at")
+      .order("metric_date", { ascending: true })
+      .limit(5000),
+    client
+      .from("integration_syncs")
+      .select("integration,status,last_attempt_at,last_success_at,range_start,range_end,row_count,error_summary,updated_at")
+      .order("integration", { ascending: true }),
   ]);
-  const error = productsResult.error || jobsResult.error || workersResult.error || assetsResult.error;
+  const error = productsResult.error || jobsResult.error || workersResult.error || assetsResult.error
+    || ga4ProductsResult.error || ga4TrafficResult.error || integrationsResult.error;
   if (error) throw error;
 
   const products: AdminProduct[] = (productsResult.data || []).map((row) => {
@@ -122,6 +149,39 @@ export async function loadDeskData(): Promise<DeskData> {
     signedUrl: null,
     createdAt: row.created_at,
   }));
+  const ga4ProductDaily: Ga4ProductDaily[] = (ga4ProductsResult.data || []).map((row) => ({
+    metricDate: row.metric_date,
+    itemId: row.item_id,
+    productId: row.product_id === null ? null : Number(row.product_id),
+    itemName: row.item_name || "",
+    clicks: Number(row.clicks || 0),
+  }));
+  const ga4TrafficDaily: Ga4TrafficDaily[] = (ga4TrafficResult.data || []).map((row) => ({
+    metricDate: row.metric_date,
+    source: row.source,
+    medium: row.medium,
+    sessions: Number(row.sessions || 0),
+    activeUsers: Number(row.active_users || 0),
+  }));
+  const integrationSyncs: IntegrationSync[] = (integrationsResult.data || []).map((row) => ({
+    integration: row.integration as IntegrationSync["integration"],
+    status: row.status as IntegrationSync["status"],
+    lastAttemptAt: row.last_attempt_at || null,
+    lastSuccessAt: row.last_success_at || null,
+    rangeStart: row.range_start || null,
+    rangeEnd: row.range_end || null,
+    rowCount: Number(row.row_count || 0),
+    errorSummary: row.error_summary || null,
+    updatedAt: row.updated_at,
+  }));
+  const performance = summarizeGa4(ga4ProductDaily, ga4TrafficDaily);
+  const clicksByProduct = new Map<number, number>();
+  for (const row of performance.products) {
+    if (row.productId !== null) clicksByProduct.set(row.productId, row.clicks);
+  }
+  for (const product of products) {
+    product.metrics.linkClicks = clicksByProduct.get(product.id) ?? 0;
+  }
   if (assets.length) {
     const { data: signedAssets } = await client.storage
       .from("completed-assets")
@@ -138,6 +198,10 @@ export async function loadDeskData(): Promise<DeskData> {
     jobs,
     workers,
     assets,
+    ga4ProductDaily,
+    ga4TrafficDaily,
+    integrationSyncs,
+    performance,
     worker: {
       online: Boolean(latestWorker?.online),
       label: latestWorker?.statusLabel || "오프라인",
@@ -146,6 +210,17 @@ export async function loadDeskData(): Promise<DeskData> {
     },
     loadedAt: new Date().toISOString(),
   };
+}
+
+export async function invokeGa4Sync(days = 30): Promise<void> {
+  const client = requireSupabase();
+  const { data, error } = await client.functions.invoke("sync-ga4", {
+    body: { days },
+  });
+  if (error) throw new Error(error.message || "GA4 Edge Function 호출에 실패했습니다");
+  if (!data || data.ok !== true) {
+    throw new Error(typeof data?.error === "string" ? data.error : "GA4 동기화에 실패했습니다");
+  }
 }
 
 export async function enqueueDub(productId: number): Promise<void> {

@@ -23,9 +23,13 @@ function setupAnalytics() {
 
 function trackClick(product) {
   if (!GA_MEASUREMENT_ID || typeof window.gtag !== "function") return;
-  gtag("event", "product_click", {
-    item_id: String(product.id),
-    item_name: product.title,
+  gtag("event", "select_item", {
+    item_list_id: "todaysingi_link_hub",
+    item_list_name: "오늘의신기템 링크 허브",
+    items: [{
+      item_id: String(product.id).padStart(3, "0"),
+      item_name: product.title,
+    }],
   });
 }
 

@@ -83,7 +83,7 @@ Cloud 기능 커밋에서 GA4 전용 마이그레이션만 가져와 현재 main
 **테스트 먼저**
 
 1. Cron 이름이 `todaysingi-ga4-daily`이고 UTC `15 19 * * *`인지 검사한다.
-2. URL, publishable key, cron secret을 SQL이나 Git에 평문으로 넣지 않는지 검사한다.
+2. URL과 cron secret을 SQL이나 Git에 평문으로 넣지 않는지 검사한다.
 3. 예약 재적용이 중복 작업을 만들지 않는지 검사한다.
 4. 비용 테이블·RPC·integration·대기 작업만 제거하고 GA4 및 로컬 관리자 데이터는 보존하는지 검사한다.
 
@@ -168,7 +168,7 @@ Cloud 기능 커밋에서 GA4 전용 마이그레이션만 가져와 현재 main
 1. `GA4_PROPERTY_ID`, `ADMIN_EMAIL`, `GA4_SERVICE_ACCOUNT_JSON`, `GA4_CRON_SECRET`,
    `GA4_ALLOWED_ORIGINS`를 Function Secrets에 저장한다.
 2. `sync-ga4`를 배포한다.
-3. Vault에 project URL, publishable key, cron secret을 저장한다.
+3. Vault에 project URL과 cron secret을 저장한다.
 4. GA4 schema, Cron, GCP 비용 정리 migration을 적용한다.
 5. 수동 함수 호출을 한 번 실행한다.
 6. GA4 저장 행과 integration 성공 상태를 확인한다.

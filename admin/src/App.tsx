@@ -12,6 +12,7 @@ import {
   enqueueDub,
   enqueueGenerateCover,
   enqueuePipelineSync,
+  invokeGa4Sync,
   loadDeskData,
   retryJob,
 } from "./lib/controlDesk";
@@ -72,6 +73,17 @@ const DEMO_DATA: DeskData = {
   }],
   workers: [],
   assets: [],
+  ga4ProductDaily: [],
+  ga4TrafficDaily: [],
+  integrationSyncs: [],
+  performance: {
+    totalClicks: 0,
+    sessions: 0,
+    activeUsers: 0,
+    dailyTrend: [],
+    products: [],
+    sources: [],
+  },
   worker: { online: false, label: "오프라인", detail: "PC를 켜면 작업을 시작합니다", version: null },
   loadedAt: new Date().toISOString(),
 };
@@ -132,6 +144,7 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
   const [busyPublishProductId, setBusyPublishProductId] = useState<number | null>(null);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncingGa4, setSyncingGa4] = useState(false);
   const [submittingProduct, setSubmittingProduct] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -260,6 +273,21 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
     }
   }
 
+  async function handleGa4Sync() {
+    if (!live) return;
+    setSyncingGa4(true);
+    try {
+      await invokeGa4Sync(30);
+      setNotice("최근 삼십 일 GA4 성과를 새로 가져왔습니다.");
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "GA4 성과 동기화에 실패했습니다");
+      await refresh();
+    } finally {
+      setSyncingGa4(false);
+    }
+  }
+
   async function submitProduct(input: { title: string; coupangUrl: string; aliUrl?: string }) {
     setSubmittingProduct(true);
     try {
@@ -280,7 +308,18 @@ function Dashboard({ live, email }: { live: boolean; email: string }) {
   let page: React.ReactNode;
   if (view === "products") page = <ProductsPage products={data.products} search={deferredSearch} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;
   else if (view === "jobs") page = <JobsPage jobs={visibleJobs} busyJobId={busyJobId} syncing={syncing} live={live} onCancel={(job) => void handleJobAction(job, "cancel")} onRetry={(job) => void handleJobAction(job, "retry")} onSync={() => void handleSync()}/>;
-  else if (view === "performance") page = <PerformancePage products={visibleProducts} connections={connections} onOpenSettings={() => navigate("settings")}/>;
+  else if (view === "performance") page = (
+    <PerformancePage
+      products={visibleProducts}
+      connections={connections}
+      performance={data.performance}
+      sync={data.integrationSyncs.find((item) => item.integration === "ga4")}
+      syncing={syncingGa4}
+      live={live}
+      onSync={() => void handleGa4Sync()}
+      onOpenSettings={() => navigate("settings")}
+    />
+  );
   else if (view === "ads") page = <AdsPage connections={connections} onOpenSettings={() => navigate("settings")}/>;
   else if (view === "settings") page = <SettingsPage connections={connections} workers={data.workers}/>;
   else page = <OverviewPage data={data} products={visibleProducts} onNavigate={navigate} onSelectProduct={(product) => setSelectedProductId(product.id)}/>;

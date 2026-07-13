@@ -27,7 +27,7 @@ def test_admin_has_six_real_views_with_hash_navigation():
     assert "hashchange" in app
 
 
-def test_external_performance_metrics_are_nullable_and_have_waiting_state():
+def test_ga4_metrics_are_real_while_unapproved_sales_stay_nullable():
     types = source("admin/src/types/admin.ts")
     dashboard = source("admin/src/lib/dashboard.ts")
     performance = source("admin/src/pages/PerformancePage.tsx")
@@ -44,7 +44,9 @@ def test_external_performance_metrics_are_nullable_and_have_waiting_state():
     assert '"waiting"' in types
     assert "연결 대기" in dashboard
     assert "연결 대기" in performance
-    assert "Measurement ID" in performance
+    assert "GA4 새로고침" in performance
+    assert "상품별 클릭" in performance
+    assert "유입 경로" in performance
     assert "최종 승인" in performance
 
 

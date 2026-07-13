@@ -4,6 +4,7 @@ import type {
   ConnectionInfo,
   DeskData,
   ExternalMetrics,
+  IntegrationSync,
   JobStatus,
   ProductStage,
 } from "../types/admin";
@@ -116,7 +117,51 @@ export function productNeedsAttention(product: AdminProduct, jobs: AdminJob[]): 
   return null;
 }
 
+export function ga4ConnectionInfo(
+  sync: IntegrationSync | undefined,
+  live: boolean,
+  now = Date.now(),
+): ConnectionInfo {
+  const base = { id: "ga4" as const, name: "Google Analytics 4" };
+  if (!live || !sync || sync.status === "idle") {
+    return {
+      ...base,
+      status: "waiting",
+      label: CONNECTION_WAITING_LABEL,
+      detail: live ? "첫 Data API 동기화를 실행하세요." : "Supabase 연결이 필요합니다.",
+    };
+  }
+  if (sync.status === "queued" || sync.status === "running") {
+    return {
+      ...base,
+      status: "waiting",
+      label: "동기화 중",
+      detail: "최근 삼십 일 데이터를 수집하고 있습니다.",
+    };
+  }
+  if (sync.status === "failed") {
+    return {
+      ...base,
+      status: "error",
+      label: "동기화 실패",
+      detail: sync.errorSummary || "GA4 수집 로그를 확인하세요.",
+    };
+  }
+  const lastSuccess = sync.lastSuccessAt ? new Date(sync.lastSuccessAt).getTime() : Number.NaN;
+  const stale = !Number.isFinite(lastSuccess) || now - lastSuccess > 48 * 60 * 60 * 1000;
+  const range = sync.rangeStart && sync.rangeEnd
+    ? `${sync.rangeStart}–${sync.rangeEnd}`
+    : "최근 삼십 일";
+  return {
+    ...base,
+    status: stale ? "stale" : "connected",
+    label: stale ? "갱신 필요" : "연결됨",
+    detail: `${range} · ${sync.rowCount.toLocaleString("ko-KR")}개 행`,
+  };
+}
+
 export function buildConnections(data: DeskData, live: boolean): ConnectionInfo[] {
+  const ga4Sync = data.integrationSyncs.find((sync) => sync.integration === "ga4");
   return [
     {
       id: "supabase",
@@ -132,13 +177,7 @@ export function buildConnections(data: DeskData, live: boolean): ConnectionInfo[
       label: data.worker.online ? "연결됨" : "오프라인",
       detail: data.worker.detail,
     },
-    {
-      id: "ga4",
-      name: "Google Analytics 4",
-      status: "waiting",
-      label: CONNECTION_WAITING_LABEL,
-      detail: "Property ID와 서버 측 Data API 자격 증명이 필요합니다.",
-    },
+    ga4ConnectionInfo(ga4Sync, live),
     {
       id: "coupang",
       name: "쿠팡 파트너스",
