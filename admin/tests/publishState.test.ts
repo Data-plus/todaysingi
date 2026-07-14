@@ -84,3 +84,23 @@ test("submitting approval has its own busy copy", () => {
   assert.equal(result.disabled, true);
   assert.equal(result.label, "승인 처리 중…");
 });
+
+test("queued cover apply blocks publishing until the Worker finishes", () => {
+  const result = state({ jobs: [{ type: "generate_cover", status: "queued" }] });
+  assert.equal(result.disabled, true);
+  assert.equal(result.label, "커버 적용 후 게시 가능");
+});
+
+test("running cover apply shows processing state", () => {
+  for (const status of ["claimed", "running"]) {
+    const result = state({ jobs: [{ type: "generate_cover", status }] });
+    assert.equal(result.disabled, true);
+    assert.equal(result.label, "커버 적용 중");
+  }
+});
+
+test("terminal cover jobs do not block publishing", () => {
+  for (const status of ["succeeded", "failed", "cancelled"]) {
+    assert.equal(state({ jobs: [{ type: "generate_cover", status }] }).disabled, false);
+  }
+});

@@ -68,6 +68,23 @@ export function getPublishButtonState({ stage, reelUrl, jobs, workerOnline, busy
     };
   }
 
+  const activeCover = jobs.find((job) => (
+    job.type === "generate_cover"
+    && (job.status === "queued" || job.status === "claimed" || job.status === "running")
+  ));
+
+  if (activeCover?.status === "claimed" || activeCover?.status === "running") {
+    return { kind: "running", disabled: true, label: "커버 적용 중", hint: "Worker가 최종 커버와 게시 영상을 갱신하고 있습니다." };
+  }
+  if (activeCover?.status === "queued") {
+    return {
+      kind: "queued",
+      disabled: true,
+      label: "커버 적용 후 게시 가능",
+      hint: workerOnline ? "커버 적용 작업이 처리 대기 중입니다." : "PC에서 Worker를 켜면 커버를 적용한 뒤 게시할 수 있습니다.",
+    };
+  }
+
   if (stage !== "caption_ready") {
     return {
       kind: "blocked",

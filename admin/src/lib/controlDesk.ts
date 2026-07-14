@@ -276,6 +276,9 @@ export async function approvePublishReel(productId: number): Promise<string> {
     if (error.code === "42501") {
       throw new Error("Instagram 게시 승인 권한이 없습니다.");
     }
+    if (error.code === "55000") {
+      throw new Error("커버 적용 작업이 끝난 후 게시를 승인할 수 있습니다.");
+    }
     throw error;
   }
   if (typeof data !== "string" || !data) {
