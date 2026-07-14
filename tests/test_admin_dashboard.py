@@ -166,3 +166,14 @@ def test_private_cover_assets_receive_signed_urls_without_public_bucket():
     assert 'from("completed-assets")' in control_desk
     assert "createSignedUrls" in control_desk
     assert "getPublicUrl" not in control_desk
+
+
+def test_cover_editor_can_queue_offline_and_marks_unsaved_changes():
+    editor = source("admin/src/components/CoverEditor.tsx")
+    drawer = source("admin/src/components/ProductDrawer.tsx")
+
+    assert "선택 커버 적용" in editor
+    assert "저장되지 않은 변경" in editor
+    assert "Worker가 켜지면 적용하도록 대기열에 저장합니다" in editor
+    assert "live && workerOnline" not in editor
+    assert "jobs={jobs}" in drawer
