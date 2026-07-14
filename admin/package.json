@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test tests/publishState.test.ts tests/performance.test.ts",
+    "test": "node --test tests/publishState.test.ts tests/performance.test.ts tests/coverState.test.ts",
     "build": "tsc -b && vite build",
     "build:netlify": "node scripts/check-netlify-env.mjs && tsc -b && vite build --outDir ../site/admin",
     "preview": "vite preview"
