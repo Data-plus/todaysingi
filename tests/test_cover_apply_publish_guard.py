@@ -75,6 +75,38 @@ def test_cover_enqueue_rpc_is_admin_only_and_rejects_active_publish_jobs():
     assert "grant execute on function public.enqueue_generate_cover(bigint, jsonb) to authenticated" in sql
 
 
+def test_database_allows_only_one_active_cover_job_per_product():
+    sql = sql_source()
+    match = re.search(
+        r"create unique index if not exists jobs_one_active_generate_cover_per_product\s+"
+        r"on public\.jobs \(product_id\)\s+"
+        r"where type = 'generate_cover' and status in \(([^)]*)\);",
+        sql,
+        re.DOTALL,
+    )
+
+    assert match is not None
+    predicate = match.group(1)
+    for status in ("queued", "claimed", "running"):
+        assert f"'{status}'" in predicate
+
+
+def test_cover_enqueue_rpc_rejects_an_existing_active_cover_after_locking():
+    cover_rpc = sql_function("enqueue_generate_cover")
+    lock = "perform pg_advisory_xact_lock(p_product_id);"
+    cover_lookup = "type = 'generate_cover'"
+    publish_lookup = "type = 'publish_reel'"
+
+    assert cover_rpc.index(lock) < cover_rpc.index(cover_lookup) < cover_rpc.index(publish_lookup)
+    active_cover_guard = cover_rpc[
+        cover_rpc.index(cover_lookup) : cover_rpc.index(publish_lookup)
+    ]
+    for status in ("queued", "claimed", "running"):
+        assert f"'{status}'" in active_cover_guard
+    assert "기존 커버 적용 작업이 완료된 후 다시 요청할 수 있습니다" in active_cover_guard
+    assert "errcode = '55000'" in active_cover_guard
+
+
 def test_admin_cover_enqueue_and_retry_use_rpc_instead_of_direct_job_insert():
     enqueue = typescript_function("enqueueGenerateCover", "approvePublishReel")
     retry = typescript_function("retryJob", "createProduct")

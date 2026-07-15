@@ -1,5 +1,9 @@
 -- 커버 적용이 끝나기 전에 Instagram 게시 승인이 앞서지 않도록 보장한다.
 
+create unique index if not exists jobs_one_active_generate_cover_per_product
+  on public.jobs (product_id)
+  where type = 'generate_cover' and status in ('queued', 'claimed', 'running');
+
 create or replace function public.approve_publish_reel(p_product_id bigint)
 returns uuid
 language plpgsql
@@ -134,6 +138,7 @@ security definer
 set search_path = ''
 as $$
 declare
+  active_cover_job_id uuid;
   active_publish_job_id uuid;
   created_job_id uuid;
 begin
@@ -143,6 +148,20 @@ begin
   end if;
 
   perform pg_advisory_xact_lock(p_product_id);
+
+  select id
+    into active_cover_job_id
+  from public.jobs
+  where product_id = p_product_id
+    and type = 'generate_cover'
+    and status in ('queued', 'claimed', 'running')
+  order by created_at desc
+  limit 1;
+
+  if active_cover_job_id is not null then
+    raise exception '기존 커버 적용 작업이 완료된 후 다시 요청할 수 있습니다'
+      using errcode = '55000';
+  end if;
 
   select id
     into active_publish_job_id
