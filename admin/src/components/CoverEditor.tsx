@@ -39,7 +39,7 @@ export function CoverEditor({
     finalCover,
     jobs,
     recommended ? frameNumber(recommended) : 0,
-    frameNumber(candidates[0]),
+    candidates[0] ? frameNumber(candidates[0]) : 0,
   );
   const [selectedFrame, setSelectedFrame] = useState(initialDraft.frame);
   const [line1, setLine1] = useState(initialDraft.line1);
