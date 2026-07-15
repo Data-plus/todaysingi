@@ -254,12 +254,9 @@ export async function enqueueGenerateCover(
   if (input.frame !== undefined) payload.frame = input.frame;
   if (input.line1?.trim()) payload.line1 = input.line1.trim();
   if (input.line2?.trim()) payload.line2 = input.line2.trim();
-  const { error } = await client.from("jobs").insert({
-    product_id: productId,
-    type: "generate_cover",
-    payload,
-    priority: 40,
-    idempotency_key: `generate_cover:${productId}:${crypto.randomUUID()}`,
+  const { error } = await client.rpc("enqueue_generate_cover", {
+    p_product_id: productId,
+    p_payload: payload,
   });
   if (error) throw error;
 }
@@ -309,6 +306,15 @@ export async function retryJob(job: AdminJob): Promise<void> {
     throw new Error("게시와 광고 작업은 검토 후 새로 승인해야 합니다");
   }
   const client = requireSupabase();
+  if (job.type === "generate_cover") {
+    if (job.productId === null) throw new Error("커버 작업의 상품을 찾을 수 없습니다");
+    const { error } = await client.rpc("enqueue_generate_cover", {
+      p_product_id: job.productId,
+      p_payload: job.payload,
+    });
+    if (error) throw error;
+    return;
+  }
   const { error } = await client.from("jobs").insert({
     product_id: job.productId,
     type: job.type,

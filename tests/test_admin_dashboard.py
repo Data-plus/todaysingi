@@ -154,7 +154,7 @@ def test_cover_editor_exposes_candidates_copy_and_real_generate_action():
     assert "CoverEditor" in drawer
     assert "enqueueGenerateCover" in app
     assert "function enqueueGenerateCover" in control_desk
-    assert 'type: "generate_cover"' in control_desk
+    assert '.rpc("enqueue_generate_cover"' in control_desk
 
 
 def test_private_cover_assets_receive_signed_urls_without_public_bucket():

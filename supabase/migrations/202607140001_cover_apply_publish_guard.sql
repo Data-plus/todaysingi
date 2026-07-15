@@ -18,6 +18,8 @@ begin
       using errcode = '42501';
   end if;
 
+  perform pg_advisory_xact_lock(p_product_id);
+
   select stage, reel_url
     into product_stage, product_reel_url
   from public.products
@@ -121,3 +123,59 @@ $$;
 
 revoke all on function public.approve_publish_reel(bigint) from public, anon;
 grant execute on function public.approve_publish_reel(bigint) to authenticated;
+
+create or replace function public.enqueue_generate_cover(
+  p_product_id bigint,
+  p_payload jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  active_publish_job_id uuid;
+  created_job_id uuid;
+begin
+  if auth.uid() is null or not public.is_todaysingi_admin() then
+    raise exception '릴스 커버 생성 권한이 없습니다'
+      using errcode = '42501';
+  end if;
+
+  perform pg_advisory_xact_lock(p_product_id);
+
+  select id
+    into active_publish_job_id
+  from public.jobs
+  where product_id = p_product_id
+    and type = 'publish_reel'
+    and status in ('queued', 'claimed', 'running')
+  order by created_at desc
+  limit 1;
+
+  if active_publish_job_id is not null then
+    raise exception '릴스 게시 작업이 진행 중인 동안 커버를 적용할 수 없습니다'
+      using errcode = '55000';
+  end if;
+
+  insert into public.jobs (
+    product_id,
+    type,
+    payload,
+    idempotency_key,
+    priority
+  ) values (
+    p_product_id,
+    'generate_cover',
+    coalesce(p_payload, '{}'::jsonb),
+    'generate_cover:' || p_product_id::text || ':' || gen_random_uuid()::text,
+    40
+  )
+  returning id into created_job_id;
+
+  return created_job_id;
+end;
+$$;
+
+revoke all on function public.enqueue_generate_cover(bigint, jsonb) from public, anon;
+grant execute on function public.enqueue_generate_cover(bigint, jsonb) to authenticated;
